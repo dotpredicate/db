@@ -1,0 +1,3 @@
+[workspace]
+members = ["rudibi-client", "rudibi-server"]
+resolver = "3"
