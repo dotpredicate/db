@@ -61,6 +61,7 @@ struct Table {
     max_row_size: usize,
 }
 
+#[derive(Debug)]
 enum FilterValue {
     U32(u32),
     F64(f64),
@@ -71,7 +72,7 @@ enum FilterValue {
 impl Table {
 
     pub fn new(name: String, schema: Vec<ColumnSchema>) -> Table {
-        return Table {
+        Table {
             name,
             min_row_size: schema.iter().map(|c| c.dtype.min_size()).sum(),
             max_row_size: schema.iter().map(|c| c.dtype.max_size()).sum(),
@@ -87,12 +88,9 @@ impl Table {
             let input_cols = input_offsets - 1;
             
             // Validate the number of columns
+            // TODO: allow partial inserts
             if input_cols != table_columns {
-                println!("Error at row {i} - invalid amount of columns: expected {table_columns}, got {input_cols}");
-                return Err(DatabaseError::RowSizeExceeded {
-                    got: input_cols,
-                    max: self.max_row_size,
-                });
+                return Err(DatabaseError::InvalidColumnCount { expected: table_columns, got: input_cols }) ;
             }
             
             // Validate the row size
@@ -130,7 +128,7 @@ impl Table {
             let new_row = StoredRow { data, offsets };
             self.contents.push(new_row);
         }
-        return Ok(())
+        Ok(())
     }
 
     pub fn get(&self, columns: Vec<String>, filters: Vec<Filter>) -> Result<Vec<StoredRow>, DatabaseError> {
@@ -164,7 +162,7 @@ impl Table {
                 });
             }
         }
-        return Ok(results);
+        Ok(results)
     }
 
     fn filter_row(&self, row: &StoredRow, filters: &[Filter]) -> Result<bool, DatabaseError> {
@@ -174,7 +172,7 @@ impl Table {
                     let (col_idx, col_scheme) = self.require_column(column)?;
                     let col_data = row.get_column(col_idx);
                     let filter_val = self.convert_filter_value(value, &col_scheme.dtype);
-                    if !self.compare_equal(col_data, &filter_val, &col_scheme.dtype) { return Ok(false); }
+                    if !self.compare_equal(col_data, &filter_val, &col_scheme.dtype)? { return Ok(false); }
                 }
                 Filter::GreaterThan { column, value } => {
                     let (col_idx, col_scheme) = self.require_column(column)?;
@@ -221,30 +219,33 @@ impl Table {
             DataType::UTF8 { .. } => FilterValue::String(String::from_utf8(value.to_vec()).unwrap()),
             DataType::VARBINARY { .. } => FilterValue::Bytes(value.to_vec()),
             DataType::BUFFER { .. } => FilterValue::Bytes(value.to_vec()),
-        }
+}
     }
 
-    fn compare_equal(&self, col_data: &[u8], filter_value: &FilterValue, dtype: &DataType) -> bool {
+    fn compare_equal(&self, col_data: &[u8], filter_value: &FilterValue, dtype: &DataType) -> Result<bool, DatabaseError> {
+        let result;
         match (dtype, filter_value) {
             (DataType::U32, FilterValue::U32(fv)) => {
-                u32::from_le_bytes(col_data.try_into().unwrap()) == *fv
+                result = u32::from_le_bytes(col_data.try_into().map_err(|_| DatabaseError::ConversionError)?) == *fv
             }
             (DataType::F64, FilterValue::F64(fv)) => {
-                f64::from_le_bytes(col_data.try_into().unwrap()) == *fv
+                result = f64::from_le_bytes(col_data.try_into().map_err(|_| DatabaseError::ConversionError)?) == *fv
             }
             (DataType::UTF8 { .. }, FilterValue::String(fv)) => {
-                String::from_utf8(col_data.to_vec()).unwrap() == *fv
+                result = String::from_utf8(col_data.to_vec()).map_err(|_| DatabaseError::ConversionError)? == *fv
             }
-            (DataType::VARBINARY { .. }, FilterValue::Bytes(fv)) => col_data == fv.as_slice(),
-            (DataType::BUFFER { .. }, FilterValue::Bytes(fv)) => col_data == fv.as_slice(),
+            (DataType::VARBINARY { .. }, FilterValue::Bytes(fv)) => result = col_data == fv.as_slice(),
+            (DataType::BUFFER { .. }, FilterValue::Bytes(fv)) => result = col_data == fv.as_slice(),
             _ => panic!("Type mismatch"),
         }
+
+        Ok(result)
     }
 
-    fn require_column(&self, name: &String) -> Result<(usize, &ColumnSchema), DatabaseError> {
+    fn require_column(&self, name: &str) -> Result<(usize, &ColumnSchema), DatabaseError> {
         self.schema.iter().enumerate()
             .find(|(_, col)| col.name == *name)
-            .ok_or_else(|| DatabaseError::ColumnNotFound(name.clone()))
+            .ok_or_else(|| DatabaseError::ColumnNotFound(name.to_string()))
     }
 }
 
@@ -308,9 +309,9 @@ pub struct GetCommand {
 
 impl Database {
     pub fn new() -> Database {
-        return Database {
+        Database {
             tables: HashMap::new()
-        };
+        }
     }
 
     pub fn new_table(&mut self, new_table: Table) -> Result<(), DatabaseError> {
@@ -332,16 +333,16 @@ impl Database {
         return tbl.get(cmd.columns, cmd.filters);
     }
 
-    fn require_table(&self, table_name: &String) -> Result<&Table, DatabaseError> {
+    fn require_table(&self, table_name: &str) -> Result<&Table, DatabaseError> {
         self.tables
             .get(table_name)
-            .ok_or_else(|| DatabaseError::TableNotFound(table_name.clone()))
-   }
+            .ok_or_else(|| DatabaseError::TableNotFound(table_name.to_string()))
+    }
 
-    fn require_table_mut(&mut self, table_name: &String) -> Result<&mut Table, DatabaseError> {
+    fn require_table_mut(&mut self, table_name: &str) -> Result<&mut Table, DatabaseError> {
         self.tables
             .get_mut(table_name)
-            .ok_or_else(|| DatabaseError::TableNotFound(table_name.clone()))
+            .ok_or_else(|| DatabaseError::TableNotFound(table_name.to_string()))
     }
 }
 
