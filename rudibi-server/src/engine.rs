@@ -33,7 +33,7 @@ impl DataType {
 }
 
 #[derive(Debug, PartialEq)]
-enum DatabaseError {
+pub enum DatabaseError {
     TableNotFound(String),
     TableExists(String),
     ColumnNotFound(String),
@@ -42,7 +42,6 @@ enum DatabaseError {
     RowSizeTooSmall { got: usize, min: usize },
     ColumnSizeOutOfBounds { column: String, got: usize, min: usize, max: usize },
     UnsupportedOperation(String),
-    InvalidFilterValue(String),
     ConversionError,
 }
 
@@ -53,7 +52,7 @@ pub struct ColumnSchema {
 }
 
 #[derive(Debug)]
-struct Table {
+pub struct Table {
     name: String,
     schema: Vec<ColumnSchema>,
     contents: Vec<StoredRow>,
@@ -61,8 +60,8 @@ struct Table {
     max_row_size: usize,
 }
 
-#[derive(Debug)]
-enum FilterValue {
+#[derive(Debug, PartialEq)]
+pub enum FilterValue {
     U32(u32),
     F64(f64),
     String(String),
@@ -81,9 +80,9 @@ impl Table {
         }
     }
 
-    pub fn store(&mut self, columns: Vec<String>, what: Vec<StoredRow>) -> Result<(), DatabaseError> {        
+    pub fn store(&mut self, _columns: Vec<String>, what: Vec<StoredRow>) -> Result<(), DatabaseError> {        
         let table_columns = self.schema.len();
-        for (i, row) in what.iter().enumerate() {
+        for row in what {
             let input_offsets = row.offsets.len();
             let input_cols = input_offsets - 1;
             
@@ -96,15 +95,10 @@ impl Table {
             // Validate the row size
             let input_size = row.data.len();
             if input_size > self.max_row_size {
-                return Err(DatabaseError::RowSizeExceeded {
-                    got: input_size,
-                    max: self.max_row_size,
-                });
-            } else if input_size < self.min_row_size {
-                return Err(DatabaseError::RowSizeTooSmall {
-                    got: input_size,
-                    min: self.min_row_size,
-                });
+                return Err(DatabaseError::RowSizeExceeded { got: input_size, max: self.max_row_size });
+            }
+            if input_size < self.min_row_size {
+                return Err(DatabaseError::RowSizeTooSmall { got: input_size, min: self.min_row_size });
             }
 
             // Validate each column for size
@@ -123,33 +117,26 @@ impl Table {
             }
             
             // Build the new StoredRow
-            let data = row.data.clone();
-            let offsets = row.offsets.clone();
-            let new_row = StoredRow { data, offsets };
-            self.contents.push(new_row);
+            self.contents.push(row);
         }
         Ok(())
     }
 
     pub fn get(&self, columns: Vec<String>, filters: Vec<Filter>) -> Result<Vec<StoredRow>, DatabaseError> {
         // Validate projection columns
-        for column in columns {
+        for column in columns.iter() {
             self.require_column(&column)?;
         }
 
         // Validate filter columns
-        for filter in &filters {
-            match filter {
-                Filter::Equal { column, .. } => {
-                    self.require_column(column)?;
-                }
-                Filter::GreaterThan { column, .. } => {
-                    self.require_column(column)?;
-                }
-                Filter::LessThan { column, .. } => {
-                    self.require_column(column)?;
-                }
-            }
+        let mut col_names = columns.clone();
+        col_names.extend(filters.iter().map(|f| match f {
+            Filter::Equal { column, .. } => column.clone(),
+            Filter::GreaterThan { column, .. } => column.clone(),
+            Filter::LessThan { column, .. } => column.clone(),
+        }));
+        for col in col_names {
+            self.require_column(&col)?;
         }
     
         // Filter and map rows
@@ -165,50 +152,57 @@ impl Table {
         Ok(results)
     }
 
+    fn get_column_value(&self, row: &StoredRow, col_idx: usize) -> Result<FilterValue, DatabaseError> {
+        let col_scheme = &self.schema[col_idx];
+        let data = row.get_column(col_idx);
+        match col_scheme.dtype {
+            DataType::U32 => { Ok(FilterValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| DatabaseError::ConversionError)?))) }
+            DataType::F64 => { Ok(FilterValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| DatabaseError::ConversionError)?))) }
+            DataType::UTF8 { .. } => Ok(FilterValue::String(
+                String::from_utf8(data.to_vec()).map_err(|_| DatabaseError::ConversionError)?,
+            )),
+            DataType::VARBINARY { .. } => Ok(FilterValue::Bytes(data.to_vec())),
+            DataType::BUFFER { length } => {
+                if data.len() != length {
+                    return Err(DatabaseError::ConversionError);
+                }
+                Ok(FilterValue::Bytes(data.to_vec()))
+            }
+        }
+    }
+
     fn filter_row(&self, row: &StoredRow, filters: &[Filter]) -> Result<bool, DatabaseError> {
         for filter in filters {
-            match filter {
-                Filter::Equal { column, value } => {
-                    let (col_idx, col_scheme) = self.require_column(column)?;
-                    let col_data = row.get_column(col_idx);
-                    let filter_val = self.convert_filter_value(value, &col_scheme.dtype);
-                    if !self.compare_equal(col_data, &filter_val, &col_scheme.dtype)? { return Ok(false); }
-                }
-                Filter::GreaterThan { column, value } => {
-                    let (col_idx, col_scheme) = self.require_column(column)?;
-                    match col_scheme.dtype {
-                        DataType::U32 => {
-                            let col_val = row.get_column_u32(col_idx);
-                            let filter_val = u32::from_le_bytes(value.as_slice().try_into().map_err(|_| DatabaseError::ConversionError)?);
-                            if !(col_val > filter_val) { return Ok(false); }
-                        }
-                        DataType::F64 => {
-                            let col_val = row.get_column_f64(col_idx);
-                            let filter_val = f64::from_le_bytes(value.as_slice().try_into().map_err(|_| DatabaseError::ConversionError)?);
-                            if !(col_val > filter_val) { return Ok(false); }
-                            
-                        }
-                        _ => return Err(DatabaseError::UnsupportedOperation(format!("GreaterThan filter not supported for data type {:?}", col_scheme.dtype))),
-                    }
-                }
-                Filter::LessThan { column, value } => {
-                    let (col_idx, col_scheme) = self.require_column(column)?;
-                    match col_scheme.dtype {
-                        DataType::U32 => {
-                            let col_val = row.get_column_u32(col_idx);
-                            let filter_val = u32::from_le_bytes(value.as_slice().try_into().map_err(|_| DatabaseError::ConversionError)?);
-                            if !(col_val < filter_val) { return Ok(false); }
-                        }
-                        DataType::F64 => {
-                            let col_val = row.get_column_f64(col_idx);
-                            let filter_val = f64::from_le_bytes(value.as_slice().try_into().map_err(|_| DatabaseError::ConversionError)?);
-                            if !(col_val < filter_val) { return Ok(false); }
-                        }
-                        _ => return Err(DatabaseError::UnsupportedOperation(format!("LessThan filter not supported for data type {:?}", col_scheme.dtype))),
-                    }
-                }
+            let (column, value) = match filter {
+                Filter::Equal { column, value } => (column, value),
+                Filter::GreaterThan { column, value } => (column, value),
+                Filter::LessThan { column, value } => (column, value),
+            };
+            let (col_idx, col_scheme) = self.require_column(column)?;
+            let col_value = self.get_column_value(row, col_idx)?;
+            let filter_val = self.convert_filter_value(value, &col_scheme.dtype);
+    
+            let passes = match filter {
+                Filter::Equal { .. } => col_value == filter_val,
+                Filter::GreaterThan { .. } => match (col_value, filter_val) {
+                    (FilterValue::U32(col_val), FilterValue::U32(filter_val)) => col_val > filter_val,
+                    (FilterValue::F64(col_val), FilterValue::F64(filter_val)) => col_val > filter_val,
+                    _ => return Err(DatabaseError::UnsupportedOperation(format!(
+                        "GreaterThan filter not supported for data type {:?}", col_scheme.dtype
+                    ))),
+                },
+                Filter::LessThan { .. } => match (col_value, filter_val) {
+                    (FilterValue::U32(col_val), FilterValue::U32(filter_val)) => col_val < filter_val,
+                    (FilterValue::F64(col_val), FilterValue::F64(filter_val)) => col_val < filter_val,
+                    _ => return Err(DatabaseError::UnsupportedOperation(format!(
+                        "LessThan filter not supported for data type {:?}", col_scheme.dtype
+                    ))),
+                },
+            };
+            if !passes {
+                return Ok(false);
             }
-        } 
+        }
         Ok(true)
     }
 
@@ -220,26 +214,6 @@ impl Table {
             DataType::VARBINARY { .. } => FilterValue::Bytes(value.to_vec()),
             DataType::BUFFER { .. } => FilterValue::Bytes(value.to_vec()),
 }
-    }
-
-    fn compare_equal(&self, col_data: &[u8], filter_value: &FilterValue, dtype: &DataType) -> Result<bool, DatabaseError> {
-        let result;
-        match (dtype, filter_value) {
-            (DataType::U32, FilterValue::U32(fv)) => {
-                result = u32::from_le_bytes(col_data.try_into().map_err(|_| DatabaseError::ConversionError)?) == *fv
-            }
-            (DataType::F64, FilterValue::F64(fv)) => {
-                result = f64::from_le_bytes(col_data.try_into().map_err(|_| DatabaseError::ConversionError)?) == *fv
-            }
-            (DataType::UTF8 { .. }, FilterValue::String(fv)) => {
-                result = String::from_utf8(col_data.to_vec()).map_err(|_| DatabaseError::ConversionError)? == *fv
-            }
-            (DataType::VARBINARY { .. }, FilterValue::Bytes(fv)) => result = col_data == fv.as_slice(),
-            (DataType::BUFFER { .. }, FilterValue::Bytes(fv)) => result = col_data == fv.as_slice(),
-            _ => panic!("Type mismatch"),
-        }
-
-        Ok(result)
     }
 
     fn require_column(&self, name: &str) -> Result<(usize, &ColumnSchema), DatabaseError> {
@@ -261,29 +235,10 @@ pub struct StoredRow {
 }
 
 impl StoredRow {
-
     pub fn get_column(&self, col_idx: usize) -> &[u8] {
         let start = self.offsets[col_idx];
         let end = self.offsets[col_idx + 1];
         return &self.data[start..end];
-    }
-
-    
-    pub fn get_column_u32(&self, col_idx: usize) -> u32 {
-        let data = self.get_column(col_idx);
-        let bytes: [u8; 4] = data.try_into().unwrap();
-        return u32::from_le_bytes(bytes)
-    }
-
-    pub fn get_column_f64(&self, col_idx: usize) -> f64 {
-        let data = self.get_column(col_idx);
-        let bytes: [u8; 8] = data.try_into().unwrap();
-        return f64::from_le_bytes(bytes)
-    }
-
-    pub fn get_column_utf8(&self, col_idx: usize) -> String {
-        let data = self.get_column(col_idx);
-        return String::from_utf8(data.to_vec()).unwrap()
     }
 }
 
@@ -294,7 +249,7 @@ pub struct StoreCommand {
 }
 
 #[derive(Debug)]
-enum Filter {
+pub enum Filter {
     Equal { column: String, value: Vec<u8> },
     GreaterThan { column: String, value: Vec<u8> },
     LessThan { column: String, value: Vec<u8> },
@@ -363,7 +318,7 @@ mod tests {
                 ColumnSchema { name: "binary".into(), dtype: DataType::VARBINARY { max_length: 5 } },
                 ColumnSchema { name: "buffer".into(), dtype: DataType::BUFFER { length: 3 } },
             ],
-        ));
+        )).unwrap();
     
         let int_val = 42u32.to_le_bytes().to_vec();
         let float_val = 3.14f64.to_le_bytes().to_vec();
@@ -399,11 +354,12 @@ mod tests {
         let results = results.expect("results");
         assert_eq!(results.len(), 1);
         let row = &results[0];
-        assert_eq!(row.get_column_u32(0), 42);
-        assert_eq!(row.get_column_f64(1), 3.14);
-        assert_eq!(row.get_column_utf8(2), "hello");
-        assert_eq!(row.get_column(3), &binary_val);
-        assert_eq!(row.get_column(4), &buffer_val);
+        let table = db.require_table("MixedTypes").unwrap();
+        assert!(matches!(table.get_column_value(row, 0).unwrap(), FilterValue::U32(42)));
+        assert!(matches!(table.get_column_value(row, 1).unwrap(), FilterValue::F64(3.14)));
+        assert!(matches!(table.get_column_value(row, 2).unwrap(), FilterValue::String(ref s) if s == "hello"));
+        assert!(matches!(table.get_column_value(row, 3).unwrap(), FilterValue::Bytes(ref v) if v == &binary_val));
+        assert!(matches!(table.get_column_value(row, 4).unwrap(), FilterValue::Bytes(ref v) if v == &buffer_val));
     }
 
     #[test]
@@ -416,7 +372,7 @@ mod tests {
                 ColumnSchema { name: "varbinary".into(), dtype: DataType::VARBINARY { max_length: 5 } },
                 ColumnSchema { name: "buffer".into(), dtype: DataType::BUFFER { length: 3 } },
             ],
-        ));
+        )).unwrap();
 
         // Test valid sizes
         let utf8_val = "abc".as_bytes().to_vec(); // 3 bytes, within 0-5
@@ -482,16 +438,14 @@ mod tests {
     fn test_filter_operations() {
         let mut db = Database::new();
         
-        // Create Fruits table with id (BUFFER) and name (VARBINARY) columns
         db.new_table(Table::new(
             "Fruits".into(),
             vec![
                 ColumnSchema { name: "id".into(), dtype: DataType::U32 },
                 ColumnSchema { name: "name".into(), dtype: DataType::UTF8 { max_bytes: 20 } },
             ],
-        ));
+        )).unwrap();
     
-        // Insert test data
         let rows = vec![
             (100u32, "apple"),
             (200u32, "banana"),
@@ -529,10 +483,10 @@ mod tests {
         });
         let results = results.expect("results");
         assert_eq!(results.len(), 2, "Expected 2 rows for name = 'banana'");
+        let table = db.require_table("Fruits").unwrap();
         for row in &results {
-            assert_eq!(row.get_column(1), "banana".as_bytes(), "Expected name to be 'banana'");
-            let id_bytes = row.get_column(0);
-            assert_eq!(id_bytes, 200u32.to_le_bytes(), "Expected id to be 200");
+            assert!(matches!(table.get_column_value(row, 1).unwrap(), FilterValue::String(s) if s == "banana"));
+            assert!(matches!(table.get_column_value(row, 0).unwrap(), FilterValue::U32(200)));
         }
     
         // Test 2: GreaterThan filter on id (BUFFER)
@@ -547,7 +501,7 @@ mod tests {
         let expected_names = vec!["cherry", "date"];
         let expected_ids = vec![300u32, 400u32];
         let results = results.expect("results");
-        assert_eq!(results.len(), 2, "Expected 2 rows for id > 200");
+        assert_eq!(results.len(), 2);
         let mut result_pairs: Vec<_> = results.iter()
             .map(|row| {
                 let id = u32::from_le_bytes(row.get_column(0).try_into().unwrap());
@@ -560,7 +514,7 @@ mod tests {
             .zip(expected_names.iter())
             .map(|(&id, &name)| (id, name.to_string()))
             .collect();
-        assert_eq!(result_pairs, expected_pairs, "Expected id,name pairs for id > 200");
+        assert_eq!(result_pairs, expected_pairs);
     
         // Test 3: LessThan filter on id (BUFFER)
         let results = db.get(GetCommand {
@@ -606,8 +560,8 @@ mod tests {
                 ColumnSchema { name: "id".into(), dtype: DataType::U32 },
                 ColumnSchema { name: "name".into(), dtype: DataType::UTF8 { max_bytes: 20 } },
             ],
-        ));
-
+        )).unwrap();
+    
         let rows = vec![
             (100u32, "apple"),
             (200u32, "banana"),
@@ -625,9 +579,9 @@ mod tests {
                     data,
                     offsets: vec![0, 4, 4 + name.len()],
                 }],
-            });
+            }).unwrap();
         }
-
+    
         let results = db.get(GetCommand {
             table_name: "Fruits".into(),
             columns: vec!["id".into(), "name".into()],
@@ -635,14 +589,14 @@ mod tests {
                 Filter::GreaterThan { column: "id".into(), value: 100u32.to_le_bytes().to_vec() },
                 Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() },
             ],
-        });
-
-        let results = results.expect("results");
-        assert_eq!(results.len(), 2);
+        }).expect("results");
+    
+        assert_eq!(results.len(), 2, "Expected 2 rows");
+        let table = db.require_table("Fruits").unwrap();
         for row in &results {
-            let id = row.get_column_u32(0);
-            assert!(id > 100);
-            assert_eq!(row.get_column_utf8(1), "banana");
+            let id = table.get_column_value(row, 0).unwrap();
+            assert!(matches!(id, FilterValue::U32(val) if val > 100), "ID should be > 100");
+            assert!(matches!(table.get_column_value(row, 1).unwrap(), FilterValue::String(s) if s == "banana"), "Name should be 'banana'");
         }
     }
 
@@ -655,7 +609,7 @@ mod tests {
                 ColumnSchema { name: "id".into(), dtype: DataType::U32 },
                 ColumnSchema { name: "name".into(), dtype: DataType::UTF8 { max_bytes: 20 } },
             ],
-        ));
+        )).unwrap();
 
         let rows = vec![(100u32, "apple"), (200u32, "banana")];
         for (id, name) in rows {
@@ -690,7 +644,7 @@ mod tests {
                 ColumnSchema { name: "id".into(), dtype: DataType::U32 },
                 ColumnSchema { name: "name".into(), dtype: DataType::UTF8 { max_bytes: 20 } },
             ],
-        ));
+        )).unwrap();
 
         let rows = vec![(100u32, "apple"), (200u32, "banana")];
         for (id, name) in rows {
@@ -722,7 +676,7 @@ mod tests {
         db.new_table(Table::new(
             "Fruits".into(),
             vec![ColumnSchema { name: "id".into(), dtype: DataType::U32 }],
-        ));
+        )).unwrap();
 
         let result = db.get(GetCommand {
             table_name: "Fruits".into(),
