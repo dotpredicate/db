@@ -1,9 +1,8 @@
-use rudibi_server::engine::*;
 
 #[cfg(test)]
 mod tests {
 
-    use super::*;
+    use rudibi_server::engine::*;
 
 
     #[test]

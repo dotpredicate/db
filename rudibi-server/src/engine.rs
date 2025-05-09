@@ -135,14 +135,14 @@ impl Table {
         }
 
         // Validate filter columns
-        let mut col_names = columns.clone();
-        col_names.extend(filters.iter().map(|f| match f {
+        let filter_columns: Vec<String> = filters.iter().map(|f| match f {
             Filter::Equal { column, .. } => column.clone(),
             Filter::GreaterThan { column, .. } => column.clone(),
             Filter::LessThan { column, .. } => column.clone(),
-        }));
-        for col in col_names {
-            self.require_column(&col)?;
+        }).collect();
+
+        for col in &filter_columns {
+            self.require_column(col)?;
         }
     
         // Filter and map rows
@@ -156,6 +156,33 @@ impl Table {
             }
         }
         Ok(results)
+    }
+
+    pub fn delete(&mut self, filters: Vec<Filter>) -> Result<usize, DatabaseError> {
+        // Validate filter columns
+        let filter_columns: Vec<String> = filters.iter().map(|f| match f {
+            Filter::Equal { column, .. } => column.clone(),
+            Filter::GreaterThan { column, .. } => column.clone(),
+            Filter::LessThan { column, .. } => column.clone(),
+        }).collect();
+
+        for col in &filter_columns {
+            self.require_column(col)?;
+        }
+
+        // Filter rows to remove
+        let mut to_remove = Vec::new();
+        for (i, row) in self.contents.iter().enumerate() {
+            if self.filter_row(row, &filters)? {
+                to_remove.push(i);
+            }
+        }
+        
+        // Remove rows in reverse order to avoid index shifting
+        for i in to_remove.iter().rev() {
+            self.contents.remove(*i);
+        }
+        Ok(to_remove.len())
     }
 
     pub fn get_column_value(&self, row: &StoredRow, col_idx: usize) -> Result<ColumnValue, DatabaseError> {
@@ -297,6 +324,18 @@ impl GetCommand {
     }
 }
 
+#[derive(Debug)]
+pub struct DeleteCommand {
+    table_name: String,
+    filters: Vec<Filter>
+}
+
+impl DeleteCommand {
+    pub fn new(table_name: &str, filters: Vec<Filter>) -> DeleteCommand {
+        DeleteCommand { table_name: table_name.to_string(), filters }
+    }
+}
+
 impl Database {
     pub fn new() -> Database {
         Database {
@@ -321,6 +360,11 @@ impl Database {
     pub fn get(&self, cmd: GetCommand) -> Result<Vec<StoredRow>, DatabaseError> {
         let tbl = self.get_table(&cmd.table_name)?;
         return tbl.get(cmd.columns, cmd.filters);
+    }
+
+    pub fn delete(&mut self, cmd: DeleteCommand) -> Result<usize, DatabaseError> {
+        let tbl = self.require_table_mut(&cmd.table_name)?;
+        tbl.delete(cmd.filters)
     }
 
     pub fn get_table(&self, table_name: &str) -> Result<&Table, DatabaseError> {
