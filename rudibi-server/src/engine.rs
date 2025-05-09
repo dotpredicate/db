@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DataType {
     U32,
     F64,
@@ -45,15 +45,15 @@ pub enum DatabaseError {
     ConversionError,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ColumnSchema {
     name: String,
     dtype: DataType,
 }
 
 impl ColumnSchema {
-    pub fn new(name: String, dtype: DataType) -> ColumnSchema {
-        ColumnSchema { name, dtype }
+    pub fn new(name: &str, dtype: DataType) -> ColumnSchema {
+        ColumnSchema { name: name.to_string(), dtype }
     }
 }
 
@@ -76,13 +76,13 @@ pub enum ColumnValue {
 
 impl Table {
 
-    pub fn new(name: String, schema: Vec<ColumnSchema>) -> Table {
+    pub fn new(name: &str, schema: Vec<ColumnSchema>) -> Table {
         Table {
-            name,
+            name: name.to_string(),
             min_row_size: schema.iter().map(|c| c.dtype.min_size()).sum(),
             max_row_size: schema.iter().map(|c| c.dtype.max_size()).sum(),
             contents: Vec::new(),
-            schema: schema,
+            schema
         }
     }
 
@@ -271,8 +271,8 @@ pub struct StoreCommand {
 }
 
 impl StoreCommand {
-    pub fn new(table_name: String, columns: Vec<String>, what: Vec<StoredRow>) -> StoreCommand {
-        StoreCommand { table_name, columns, what }
+    pub fn new(table_name: &str, columns: &[&str], what: Vec<StoredRow>) -> StoreCommand {
+        StoreCommand { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), what }
     }
 }
 
@@ -292,8 +292,8 @@ pub struct GetCommand {
 }
 
 impl GetCommand {
-    pub fn new(table_name: String, columns: Vec<String>, filters: Vec<Filter>) -> GetCommand {
-        GetCommand { table_name, columns, filters }
+    pub fn new(table_name: &str, columns: &[&str], filters: Vec<Filter>) -> GetCommand {
+        GetCommand { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), filters }
     }
 }
 

@@ -9,15 +9,14 @@ mod tests {
     #[test]
     fn test_all_data_types() {
         let mut db = Database::new();
-        db.new_table(Table::new(
-            "MixedTypes".into(),
+        db.new_table(Table::new("MixedTypes",
             vec![
-                ColumnSchema::new("int".into(), DataType::U32),
-                ColumnSchema::new("float".into(), DataType::F64),
-                ColumnSchema::new("text".into(), DataType::UTF8 { max_bytes: 10 }),
-                ColumnSchema::new("binary".into(), DataType::VARBINARY { max_length: 5 }),
-                ColumnSchema::new("buffer".into(), DataType::BUFFER { length: 3 }),
-            ],
+                ColumnSchema::new("int", DataType::U32),
+                ColumnSchema::new("float", DataType::F64),
+                ColumnSchema::new("text", DataType::UTF8 { max_bytes: 10 }),
+                ColumnSchema::new("binary", DataType::VARBINARY { max_length: 5 }),
+                ColumnSchema::new("buffer", DataType::BUFFER { length: 3 }),
+            ]
         )).unwrap();
 
         let row = StoredRow::of_columns(&[
@@ -28,18 +27,10 @@ mod tests {
             &[0xAA, 0xBB, 0xCC],
         ]);
 
-        let result = db.store(StoreCommand::new(
-            "MixedTypes".into(),
-            vec!["int".into(), "float".into(), "text".into(), "binary".into(), "buffer".into()],
-            vec![row],
-        ));
+        let result = db.store(StoreCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![row]));
         assert!(result.is_ok(), "{result:#?}");
 
-        let results = db.get(GetCommand::new(
-            "MixedTypes".into(),
-            vec!["int".into(), "float".into(), "text".into(), "binary".into(), "buffer".into()],
-            vec![],
-        ));
+        let results = db.get(GetCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![]));
 
         let results = results.expect("results");
         assert_eq!(results.len(), 1);
@@ -55,13 +46,12 @@ mod tests {
     #[test]
     fn test_column_size_limits() {
         let mut db = Database::new();
-        db.new_table(Table::new(
-            "SizeTest".into(),
+        db.new_table(Table::new("SizeTest",
             vec![
-                ColumnSchema::new("utf8".into(), DataType::UTF8 { max_bytes: 5 }),
-                ColumnSchema::new("varbinary".into(), DataType::VARBINARY { max_length: 5 }),
-                ColumnSchema::new("buffer".into(), DataType::BUFFER { length: 3 }),
-            ],
+                ColumnSchema::new("utf8", DataType::UTF8 { max_bytes: 5 }),
+                ColumnSchema::new("varbinary", DataType::VARBINARY { max_length: 5 }),
+                ColumnSchema::new("buffer", DataType::BUFFER { length: 3 }),
+            ]
         )).unwrap();
 
         // Test valid sizes
@@ -69,37 +59,20 @@ mod tests {
         let varbinary_val = vec![1, 2, 3, 4, 5]; // 5 bytes, at max
         let buffer_val = vec![6, 7, 8]; // 3 bytes, exact length
         let row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &buffer_val]);
-        let result = db.store(StoreCommand::new(
-            "SizeTest".into(),
-            vec!["utf8".into(), "varbinary".into(), "buffer".into()],
-            vec![row],
-        ));
+        let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![row]));
         assert!(result.is_ok(), "{result:#?}");
 
         // Test invalid size (varbinary too long)
         let invalid_varbinary = vec![1, 2, 3, 4, 5, 6]; // 6 bytes, exceeds max_length 5
         let invalid_row = StoredRow::of_columns(&[&utf8_val, &invalid_varbinary, &buffer_val]);
 
-        let result = db.store(StoreCommand::new(
-            "SizeTest".into(),
-            vec!["utf8".into(), "varbinary".into(), "buffer".into()],
-            vec![invalid_row],
-        ));
-        assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds {
-            column: "varbinary".into(),
-            got: 6,
-            min: 0,
-            max: 5,
-        }), "{result:#?}");
+        let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![invalid_row]));
+        assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds { column: "varbinary".into(), got: 6, min: 0, max: 5 }), "{result:#?}");
 
         // Test invalid size (buffer too short)
         let short_buffer = vec![1, 2]; // 2 bytes, less than length 3
         let short_row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &short_buffer]);
-        let result = db.store(StoreCommand::new(
-            "SizeTest".into(),
-            vec!["utf8".into(), "varbinary".into(), "buffer".into()],
-            vec![short_row],
-        ));
+        let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![short_row]));
         assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds { column: "buffer".into(), got: 2, min: 3, max: 3 }));
     }
 
@@ -107,12 +80,11 @@ mod tests {
     fn test_filter_operations() {
         let mut db = Database::new();
         
-        db.new_table(Table::new(
-            "Fruits".into(),
+        db.new_table(Table::new("Fruits", 
             vec![
-                ColumnSchema::new("id".into(), DataType::U32),
-                ColumnSchema::new("name".into(), DataType::UTF8 { max_bytes: 20 }),
-            ],
+                ColumnSchema::new("id", DataType::U32),
+                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 })
+            ]
         )).unwrap();
     
         let rows = vec![
@@ -125,19 +97,14 @@ mod tests {
     
         for (id, name) in rows {
             let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
-
-            let result = db.store(StoreCommand::new(
-                "Fruits".into(),
-                vec!["id".into(), "name".into()],
-                vec![row],
-            ));
+            let result = db.store(StoreCommand::new("Fruits", &["id", "name"], vec![row]));
             assert!(result.is_ok(), "{result:#?}");
         }
     
         // Test 1: Equality filter on name (VARBINARY)
         let results = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["id".into(), "name".into()],
+            "Fruits",
+            &["id", "name"],
             vec![Filter::Equal {
                 column: "name".into(),
                 value: "banana".as_bytes().to_vec(),
@@ -153,8 +120,8 @@ mod tests {
     
         // Test 2: GreaterThan filter on id (BUFFER)
         let results = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["id".into(), "name".into()],
+            "Fruits",
+            &["id", "name"],
             vec![Filter::GreaterThan {
                 column: "id".into(),
                 value: 200u32.to_le_bytes().to_vec(),
@@ -180,8 +147,8 @@ mod tests {
     
         // Test 3: LessThan filter on id (BUFFER)
         let results = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["id".into(), "name".into()],
+            "Fruits",
+            &["id", "name"],
             vec![Filter::LessThan {
                 column: "id".into(),
                 value: 200u32.to_le_bytes().to_vec(),
@@ -202,8 +169,8 @@ mod tests {
     
         // Test 4: Attempt GreaterThan on VARBINARY (should panic)
         let result = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["name".into()],
+            "Fruits",
+            &["name"],
             vec![Filter::GreaterThan {
                 column: "name".into(),
                 value: "banana".as_bytes().to_vec(),
@@ -217,10 +184,10 @@ mod tests {
     fn test_multiple_filters() {
         let mut db = Database::new();
         db.new_table(Table::new(
-            "Fruits".into(),
+            "Fruits",
             vec![
-                ColumnSchema::new("id".into(), DataType::U32),
-                ColumnSchema::new("name".into(), DataType::UTF8 { max_bytes: 20 }),
+                ColumnSchema::new("id", DataType::U32),
+                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
             ],
         )).unwrap();
     
@@ -233,15 +200,15 @@ mod tests {
         for (id, name) in rows {
             let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
             db.store(StoreCommand::new(
-                "Fruits".into(),
-                vec!["id".into(), "name".into()],
+                "Fruits",
+                &["id", "name"],
                 vec![row],
             )).unwrap();
         }
     
         let results = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["id".into(), "name".into()],
+            "Fruits",
+            &["id", "name"],
             vec![
                 Filter::GreaterThan { column: "id".into(), value: 100u32.to_le_bytes().to_vec() },
                 Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() },
@@ -261,10 +228,10 @@ mod tests {
     fn test_no_matching_rows() {
         let mut db = Database::new();
         db.new_table(Table::new(
-            "Fruits".into(),
+            "Fruits",
             vec![
-                ColumnSchema::new("id".into(), DataType::U32),
-                ColumnSchema::new("name".into(), DataType::UTF8 { max_bytes: 20 }),
+                ColumnSchema::new("id", DataType::U32),
+                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
             ],
         )).unwrap();
 
@@ -272,15 +239,15 @@ mod tests {
         for (id, name) in rows {
             let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
             db.store(StoreCommand::new(
-                "Fruits".into(),
-                vec!["id".into(), "name".into()],
+                "Fruits",
+                &["id", "name"],
                 vec![row],
             )).unwrap();
         }
 
         let results = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["id".into(), "name".into()],
+            "Fruits",
+            &["id", "name"],
             vec![Filter::Equal { column: "name".into(), value: "orange".as_bytes().to_vec() }],
         ));
         let results = results.expect("results");
@@ -291,10 +258,10 @@ mod tests {
     fn test_no_filters() {
         let mut db = Database::new();
         db.new_table(Table::new(
-            "Fruits".into(),
+            "Fruits",
             vec![
-                ColumnSchema::new("id".into(), DataType::U32),
-                ColumnSchema::new("name".into(), DataType::UTF8 { max_bytes: 20 }),
+                ColumnSchema::new("id", DataType::U32),
+                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
             ],
         )).unwrap();
 
@@ -302,16 +269,16 @@ mod tests {
         for (id, name) in rows {
             let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
             let result = db.store(StoreCommand::new(
-                "Fruits".into(),
-                vec!["id".into(), "name".into()],
+                "Fruits",
+                &["id", "name"],
                 vec![row],
             ));
             assert!(result.is_ok(), "{result:#?}");
         }
 
         let results = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["id".into(), "name".into()],
+            "Fruits",
+            &["id", "name"],
             vec![],
         ));
         assert_eq!(results.expect("results").len(), 2, "Expected all rows when no filters are applied");
@@ -321,13 +288,13 @@ mod tests {
     fn test_invalid_column() {
         let mut db = Database::new();
         db.new_table(Table::new(
-            "Fruits".into(),
-            vec![ColumnSchema::new("id".into(), DataType::U32)],
+            "Fruits",
+            vec![ColumnSchema::new("id", DataType::U32)],
         )).unwrap();
 
         let result = db.get(GetCommand::new(
-            "Fruits".into(),
-            vec!["invalid_column".into()],
+            "Fruits",
+            &["invalid_column"],
             vec![],
         ));
         assert_eq!(result.expect_err("err"), DatabaseError::ColumnNotFound("invalid_column".into()));
@@ -337,8 +304,8 @@ mod tests {
     fn test_invalid_table() {
         let db = Database::new();
         let result = db.get(GetCommand::new(
-            "NonExistent".into(),
-            vec!["id".into()],
+            "NonExistent",
+            &["id"],
             vec![],
         ));
         assert_eq!(result.unwrap_err(), DatabaseError::TableNotFound("NonExistent".into()));
