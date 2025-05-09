@@ -1,6 +1,7 @@
 
 #[cfg(test)]
 mod tests {
+
     use rudibi_server::engine::*;
 
     #[test]
@@ -33,7 +34,7 @@ mod tests {
 
         let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
         assert_eq!(results.len(), 2);
-        let table = db.get_table("Fruits").unwrap();
+        let table = db.require_table("Fruits").unwrap();
         let names: Vec<String> = results.iter().map(|row| {
             if let ColumnValue::String(name) = table.get_column_value(row, 1).unwrap() {
                 name
@@ -74,7 +75,7 @@ mod tests {
 
         let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
         assert_eq!(results.len(), 2);
-        let table = db.get_table("Fruits").unwrap();
+        let table = db.require_table("Fruits").unwrap();
         let ids: Vec<u32> = results.iter().map(|row| {
             if let ColumnValue::U32(id) = table.get_column_value(row, 0).unwrap() {
                 id

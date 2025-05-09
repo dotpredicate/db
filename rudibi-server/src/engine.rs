@@ -35,7 +35,8 @@ impl DataType {
 #[derive(Debug, PartialEq)]
 pub enum DatabaseError {
     TableNotFound(String),
-    TableExists(String),
+    TableAlreadyExists(String),
+    EmptyTableSchema,
     ColumnNotFound(String),
     InvalidColumnCount { expected: usize, got: usize },
     RowSizeExceeded { got: usize, max: usize },
@@ -346,7 +347,10 @@ impl Database {
     pub fn new_table(&mut self, new_table: Table) -> Result<(), DatabaseError> {
         let table_name = &new_table.name;
         if let Some(_) = self.tables.get(table_name) {
-            return Err(DatabaseError::TableExists(table_name.clone()));
+            return Err(DatabaseError::TableAlreadyExists(table_name.clone()));
+        }
+        if new_table.schema.is_empty() {
+            return Err(DatabaseError::EmptyTableSchema);
         }
         self.tables.insert(table_name.to_owned(), new_table);
         return Ok(())
@@ -358,7 +362,7 @@ impl Database {
     }
 
     pub fn get(&self, cmd: GetCommand) -> Result<Vec<StoredRow>, DatabaseError> {
-        let tbl = self.get_table(&cmd.table_name)?;
+        let tbl = self.require_table(&cmd.table_name)?;
         return tbl.get(cmd.columns, cmd.filters);
     }
 
@@ -367,7 +371,7 @@ impl Database {
         tbl.delete(cmd.filters)
     }
 
-    pub fn get_table(&self, table_name: &str) -> Result<&Table, DatabaseError> {
+    pub fn require_table(&self, table_name: &str) -> Result<&Table, DatabaseError> {
         self.tables
             .get(table_name)
             .ok_or_else(|| DatabaseError::TableNotFound(table_name.to_string()))

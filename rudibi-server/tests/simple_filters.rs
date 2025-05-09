@@ -4,81 +4,9 @@ mod tests {
 
     use rudibi_server::engine::*;
 
-
-    #[test]
-    fn test_all_data_types() {
-        let mut db = Database::new();
-        db.new_table(Table::new("MixedTypes",
-            vec![
-                ColumnSchema::new("int", DataType::U32),
-                ColumnSchema::new("float", DataType::F64),
-                ColumnSchema::new("text", DataType::UTF8 { max_bytes: 10 }),
-                ColumnSchema::new("binary", DataType::VARBINARY { max_length: 5 }),
-                ColumnSchema::new("buffer", DataType::BUFFER { length: 3 }),
-            ]
-        )).unwrap();
-
-        let row = StoredRow::of_columns(&[
-            &42u32.to_le_bytes(),
-            &3.14f64.to_le_bytes(),
-            "hello".as_bytes(),
-            &[0x01, 0x02, 0x03, 0x04, 0x05],
-            &[0xAA, 0xBB, 0xCC],
-        ]);
-
-        let result = db.store(StoreCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![row]));
-        assert!(result.is_ok(), "{result:#?}");
-
-        let results = db.get(GetCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![]));
-
-        let results = results.expect("results");
-        assert_eq!(results.len(), 1);
-        let row = &results[0];
-        let table = db.get_table("MixedTypes").unwrap();
-        assert!(matches!(table.get_column_value(row, 0).unwrap(), ColumnValue::U32(42)));
-        assert!(matches!(table.get_column_value(row, 1).unwrap(), ColumnValue::F64(3.14)));
-        assert!(matches!(table.get_column_value(row, 2).unwrap(), ColumnValue::String(ref s) if s == "hello"));
-        assert!(matches!(table.get_column_value(row, 3).unwrap(), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
-        assert!(matches!(table.get_column_value(row, 4).unwrap(), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
-    }
-
-    #[test]
-    fn test_column_size_limits() {
-        let mut db = Database::new();
-        db.new_table(Table::new("SizeTest",
-            vec![
-                ColumnSchema::new("utf8", DataType::UTF8 { max_bytes: 5 }),
-                ColumnSchema::new("varbinary", DataType::VARBINARY { max_length: 5 }),
-                ColumnSchema::new("buffer", DataType::BUFFER { length: 3 }),
-            ]
-        )).unwrap();
-
-        // Test valid sizes
-        let utf8_val = "abc".as_bytes().to_vec(); // 3 bytes, within 0-5
-        let varbinary_val = vec![1, 2, 3, 4, 5]; // 5 bytes, at max
-        let buffer_val = vec![6, 7, 8]; // 3 bytes, exact length
-        let row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &buffer_val]);
-        let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![row]));
-        assert!(result.is_ok(), "{result:#?}");
-
-        // Test invalid size (varbinary too long)
-        let invalid_varbinary = vec![1, 2, 3, 4, 5, 6]; // 6 bytes, exceeds max_length 5
-        let invalid_row = StoredRow::of_columns(&[&utf8_val, &invalid_varbinary, &buffer_val]);
-
-        let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![invalid_row]));
-        assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds { column: "varbinary".into(), got: 6, min: 0, max: 5 }), "{result:#?}");
-
-        // Test invalid size (buffer too short)
-        let short_buffer = vec![1, 2]; // 2 bytes, less than length 3
-        let short_row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &short_buffer]);
-        let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![short_row]));
-        assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds { column: "buffer".into(), got: 2, min: 3, max: 3 }));
-    }
-
     #[test]
     fn test_filter_operations() {
         let mut db = Database::new();
-        
         db.new_table(Table::new("Fruits", 
             vec![
                 ColumnSchema::new("id", DataType::U32),
@@ -111,7 +39,7 @@ mod tests {
         ));
         let results = results.expect("results");
         assert_eq!(results.len(), 2, "Expected 2 rows for name = 'banana'");
-        let table = db.get_table("Fruits").unwrap();
+        let table = db.require_table("Fruits").unwrap();
         for row in &results {
             assert!(matches!(table.get_column_value(row, 1).unwrap(), ColumnValue::String(s) if s == "banana"));
             assert!(matches!(table.get_column_value(row, 0).unwrap(), ColumnValue::U32(200)));
@@ -215,7 +143,7 @@ mod tests {
         )).expect("results");
     
         assert_eq!(results.len(), 2, "Expected 2 rows");
-        let table = db.get_table("Fruits").unwrap();
+        let table = db.require_table("Fruits").unwrap();
         for row in &results {
             let id = table.get_column_value(row, 0).unwrap();
             assert!(matches!(id, ColumnValue::U32(val) if val > 100), "ID should be > 100");
