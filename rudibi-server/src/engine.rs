@@ -242,6 +242,17 @@ pub struct StoredRow {
 
 impl StoredRow {
     
+    pub fn of_columns(columns: &[&[u8]]) -> StoredRow {
+        let mut data = Vec::new();
+        let mut offsets = Vec::new();
+        offsets.push(0);
+        for col in columns {
+            data.extend_from_slice(col);
+            offsets.push(data.len());
+        }
+        StoredRow { data, offsets }
+    }
+
     pub fn new(data: Vec<u8>, offsets: Vec<usize>) -> StoredRow {
         StoredRow { data, offsets }
     }

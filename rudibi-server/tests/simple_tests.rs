@@ -19,38 +19,28 @@ mod tests {
                 ColumnSchema::new("buffer".into(), DataType::BUFFER { length: 3 }),
             ],
         )).unwrap();
-    
-        let int_val = 42u32.to_le_bytes().to_vec();
-        let float_val = 3.14f64.to_le_bytes().to_vec();
-        let text_val = "hello".as_bytes().to_vec();
-        let binary_val = vec![0x01, 0x02, 0x03, 0x04, 0x05];
-        let buffer_val = vec![0xAA, 0xBB, 0xCC];
-    
-        let mut data = Vec::new();
-        data.extend_from_slice(&int_val);
-        data.extend_from_slice(&float_val);
-        data.extend_from_slice(&text_val);
-        data.extend_from_slice(&binary_val);
-        data.extend_from_slice(&buffer_val);
-    
-        let row = StoredRow::new(
-            data,
-            vec![0, 4, 12, 17, 22, 25],
-        );
-    
+
+        let row = StoredRow::of_columns(&[
+            &42u32.to_le_bytes(),
+            &3.14f64.to_le_bytes(),
+            "hello".as_bytes(),
+            &[0x01, 0x02, 0x03, 0x04, 0x05],
+            &[0xAA, 0xBB, 0xCC],
+        ]);
+
         let result = db.store(StoreCommand::new(
             "MixedTypes".into(),
             vec!["int".into(), "float".into(), "text".into(), "binary".into(), "buffer".into()],
             vec![row],
         ));
         assert!(result.is_ok(), "{result:#?}");
-    
+
         let results = db.get(GetCommand::new(
             "MixedTypes".into(),
             vec!["int".into(), "float".into(), "text".into(), "binary".into(), "buffer".into()],
             vec![],
         ));
-    
+
         let results = results.expect("results");
         assert_eq!(results.len(), 1);
         let row = &results[0];
@@ -58,8 +48,8 @@ mod tests {
         assert!(matches!(table.get_column_value(row, 0).unwrap(), ColumnValue::U32(42)));
         assert!(matches!(table.get_column_value(row, 1).unwrap(), ColumnValue::F64(3.14)));
         assert!(matches!(table.get_column_value(row, 2).unwrap(), ColumnValue::String(ref s) if s == "hello"));
-        assert!(matches!(table.get_column_value(row, 3).unwrap(), ColumnValue::Bytes(ref v) if v == &binary_val));
-        assert!(matches!(table.get_column_value(row, 4).unwrap(), ColumnValue::Bytes(ref v) if v == &buffer_val));
+        assert!(matches!(table.get_column_value(row, 3).unwrap(), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
+        assert!(matches!(table.get_column_value(row, 4).unwrap(), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
     }
 
     #[test]
@@ -78,14 +68,7 @@ mod tests {
         let utf8_val = "abc".as_bytes().to_vec(); // 3 bytes, within 0-5
         let varbinary_val = vec![1, 2, 3, 4, 5]; // 5 bytes, at max
         let buffer_val = vec![6, 7, 8]; // 3 bytes, exact length
-        let mut data = Vec::new();
-        data.extend_from_slice(&utf8_val);
-        data.extend_from_slice(&varbinary_val);
-        data.extend_from_slice(&buffer_val);
-        let row = StoredRow::new(
-            data,
-            vec![0, 3, 8, 11],
-        );
+        let row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &buffer_val]);
         let result = db.store(StoreCommand::new(
             "SizeTest".into(),
             vec!["utf8".into(), "varbinary".into(), "buffer".into()],
@@ -95,14 +78,7 @@ mod tests {
 
         // Test invalid size (varbinary too long)
         let invalid_varbinary = vec![1, 2, 3, 4, 5, 6]; // 6 bytes, exceeds max_length 5
-        let mut invalid_data = Vec::new();
-        invalid_data.extend_from_slice(&utf8_val);
-        invalid_data.extend_from_slice(&invalid_varbinary);
-        invalid_data.extend_from_slice(&buffer_val);
-        let invalid_row = StoredRow::new(
-            invalid_data,
-            vec![0, 3, 9, 12],
-        );
+        let invalid_row = StoredRow::of_columns(&[&utf8_val, &invalid_varbinary, &buffer_val]);
 
         let result = db.store(StoreCommand::new(
             "SizeTest".into(),
@@ -118,20 +94,13 @@ mod tests {
 
         // Test invalid size (buffer too short)
         let short_buffer = vec![1, 2]; // 2 bytes, less than length 3
-        let mut short_data = Vec::new();
-        short_data.extend_from_slice(&utf8_val);
-        short_data.extend_from_slice(&varbinary_val);
-        short_data.extend_from_slice(&short_buffer);
-        let short_row = StoredRow::new(
-            short_data,
-            vec![0, 3, 8, 10],
-        );
+        let short_row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &short_buffer]);
         let result = db.store(StoreCommand::new(
             "SizeTest".into(),
             vec!["utf8".into(), "varbinary".into(), "buffer".into()],
             vec![short_row],
         ));
-        assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds{ column: "buffer".into(), got: 2, min: 3, max: 3 }));
+        assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds { column: "buffer".into(), got: 2, min: 3, max: 3 }));
     }
 
     #[test]
@@ -155,15 +124,8 @@ mod tests {
         ];
     
         for (id, name) in rows {
-            let id_bytes = id.to_le_bytes().to_vec();
-            let name_bytes = name.as_bytes().to_vec();
-            let mut data = Vec::new();
-            data.extend_from_slice(&id_bytes);
-            data.extend_from_slice(&name_bytes);
-            let row = StoredRow::new(
-                data,
-                vec![0, 4, 4 + name_bytes.len()],
-            );
+            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
+
             let result = db.store(StoreCommand::new(
                 "Fruits".into(),
                 vec!["id".into(), "name".into()],
@@ -269,16 +231,11 @@ mod tests {
             (400u32, "cherry"),
         ];
         for (id, name) in rows {
-            let mut data = Vec::new();
-            data.extend_from_slice(&id.to_le_bytes());
-            data.extend_from_slice(name.as_bytes());
+            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
             db.store(StoreCommand::new(
                 "Fruits".into(),
                 vec!["id".into(), "name".into()],
-                vec![StoredRow::new(
-                    data,
-                    vec![0, 4, 4 + name.len()],
-                )],
+                vec![row],
             )).unwrap();
         }
     
@@ -313,16 +270,11 @@ mod tests {
 
         let rows = vec![(100u32, "apple"), (200u32, "banana")];
         for (id, name) in rows {
-            let mut data = Vec::new();
-            data.extend_from_slice(&id.to_le_bytes());
-            data.extend_from_slice(name.as_bytes());
+            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
             db.store(StoreCommand::new(
                 "Fruits".into(),
                 vec!["id".into(), "name".into()],
-                vec![StoredRow::new(
-                    data,
-                    vec![0, 4, 4 + name.len()],
-                )],
+                vec![row],
             )).unwrap();
         }
 
@@ -348,16 +300,11 @@ mod tests {
 
         let rows = vec![(100u32, "apple"), (200u32, "banana")];
         for (id, name) in rows {
-            let mut data = Vec::new();
-            data.extend_from_slice(&id.to_le_bytes());
-            data.extend_from_slice(name.as_bytes());
+            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
             let result = db.store(StoreCommand::new(
                 "Fruits".into(),
                 vec!["id".into(), "name".into()],
-                vec![StoredRow::new(
-                    data,
-                    vec![0, 4, 4 + name.len()],
-                )],
+                vec![row],
             ));
             assert!(result.is_ok(), "{result:#?}");
         }
