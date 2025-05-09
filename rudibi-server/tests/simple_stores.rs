@@ -5,6 +5,13 @@ mod tests {
     use rudibi_server::engine::*;
 
     #[test]
+    fn store_unknown_table() {
+        let mut db = Database::new();
+        let result = db.store(StoreCommand::new("UnknownTable", &["id"], vec![]));
+        assert_eq!(result, Err(DatabaseError::TableNotFound("UnknownTable".to_string())));
+    }
+
+    #[test]
     fn test_all_data_types() {
         let mut db = Database::new();
         db.new_table(Table::new("MixedTypes",
@@ -28,9 +35,7 @@ mod tests {
         let result = db.store(StoreCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![row]));
         assert!(result.is_ok(), "{result:#?}");
 
-        let results = db.get(GetCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![]));
-
-        let results = results.expect("results");
+        let results = db.get(GetCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![])).unwrap();
         assert_eq!(results.len(), 1);
         let row = &results[0];
         let table = db.require_table("MixedTypes").unwrap();
