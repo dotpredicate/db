@@ -14,7 +14,7 @@ mod tests {
     #[test]
     fn test_all_data_types() {
         let mut db = Database::new();
-        db.new_table(Table::new("MixedTypes",
+        db.new_table(&TableSchema::new("MixedTypes",
             vec![
                 ColumnSchema::new("int", DataType::U32),
                 ColumnSchema::new("float", DataType::F64),
@@ -38,18 +38,18 @@ mod tests {
         let results = db.get(GetCommand::new("MixedTypes", &["int", "float", "text", "binary", "buffer"], vec![])).unwrap();
         assert_eq!(results.len(), 1);
         let row = &results[0];
-        let table = db.require_table("MixedTypes").unwrap();
-        assert!(matches!(table.get_column_value(row, 0).unwrap(), ColumnValue::U32(42)));
-        assert!(matches!(table.get_column_value(row, 1).unwrap(), ColumnValue::F64(3.14)));
-        assert!(matches!(table.get_column_value(row, 2).unwrap(), ColumnValue::String(ref s) if s == "hello"));
-        assert!(matches!(table.get_column_value(row, 3).unwrap(), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
-        assert!(matches!(table.get_column_value(row, 4).unwrap(), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
+        let schema = db.schema_for("MixedTypes").unwrap();
+        assert!(matches!(db.get_column_value(&schema, &row, 0).unwrap(), ColumnValue::U32(42)));
+        assert!(matches!(db.get_column_value(&schema, row, 1).unwrap(), ColumnValue::F64(3.14)));
+        assert!(matches!(db.get_column_value(&schema, &row, 2).unwrap(), ColumnValue::String(ref s) if s == "hello"));
+        assert!(matches!(db.get_column_value(&schema, &row, 3).unwrap(), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
+        assert!(matches!(db.get_column_value(&schema, row, 4).unwrap(), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
     }
 
     #[test]
     fn test_column_size_limits() {
         let mut db = Database::new();
-        db.new_table(Table::new("SizeTest",
+        db.new_table(&TableSchema::new("SizeTest",
             vec![
                 ColumnSchema::new("utf8", DataType::UTF8 { max_bytes: 5 }),
                 ColumnSchema::new("varbinary", DataType::VARBINARY { max_length: 5 }),

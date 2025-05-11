@@ -7,7 +7,7 @@ mod tests {
     #[test]
     fn test_delete_with_equality_filter() {
         let mut db = Database::new();
-        db.new_table(Table::new("Fruits",
+        db.new_table(&TableSchema::new("Fruits",
             vec![
                 ColumnSchema::new("id", DataType::U32),
                 ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
@@ -32,9 +32,9 @@ mod tests {
 
         let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
         assert_eq!(results.len(), 2);
-        let table = db.require_table("Fruits").unwrap();
+        let schema = db.schema_for("Fruits").unwrap();
         let names: Vec<String> = results.iter().map(|row| {
-            match table.get_column_value(row, 1).unwrap() {
+            match db.get_column_value(&schema, &row, 1).unwrap() {
                 ColumnValue::String(name) => name,
                 x => panic!("Expected String, got {:?}", x),
             }
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn test_delete_with_greater_than_filter() {
         let mut db = Database::new();
-        db.new_table(Table::new("Fruits",
+        db.new_table(&TableSchema::new("Fruits",
             vec![
                 ColumnSchema::new("id", DataType::U32),
                 ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
@@ -70,9 +70,9 @@ mod tests {
 
         let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
         assert_eq!(results.len(), 2);
-        let table = db.require_table("Fruits").unwrap();
+        let schema = db.schema_for("Fruits").unwrap();
         let ids: Vec<u32> = results.iter().map(|row| {
-            if let ColumnValue::U32(id) = table.get_column_value(row, 0).unwrap() {
+            if let ColumnValue::U32(id) = db.get_column_value(&schema, &row, 0).unwrap() {
                 id
             } else {
                 panic!("Expected U32");
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn test_delete_all_rows() {
         let mut db = Database::new();
-        db.new_table(Table::new("Fruits",
+        db.new_table(&TableSchema::new("Fruits",
             vec![
                 ColumnSchema::new("id", DataType::U32),
                 ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn test_delete_with_invalid_column() {
         let mut db = Database::new();
-        db.new_table(Table::new("Fruits", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.new_table(&TableSchema::new("Fruits", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
 
         let delete_cmd = DeleteCommand::new("Fruits",
             vec![Filter::Equal { column: "invalid".into(), value: vec![] }],
