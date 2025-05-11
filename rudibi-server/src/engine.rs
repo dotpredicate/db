@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::storage::{InMemoryStorage, Storage};
+use crate::storage::{InMemoryStorage, RowId, Storage};
 
 #[derive(Debug, Clone)]
 pub enum DataType {
@@ -299,8 +299,6 @@ impl Database {
 
     pub fn delete(&mut self, cmd: DeleteCommand) -> Result<usize, DatabaseError> {
         let tbl = self.schema_for(&cmd.table_name)?;
-        // FIXME: Probably unnecessarily cloning, because borrow checker
-        let tbl = tbl.to_owned();
 
         // Validate filter columns
         let filter_columns: Vec<String> = cmd.filters.iter().map(|f| match f {
@@ -310,21 +308,17 @@ impl Database {
         }).collect();
         tbl.validate_columns(&filter_columns)?;
 
-        let storage = self.mut_storage_for(&cmd.table_name)?;
-
         // Filter rows to remove
-        let mut to_remove = Vec::new();
-        for (i, row) in storage.scan() {
-            if self.filter_row(&tbl, &row, &cmd.filters)? {
-                to_remove.push(i);
-            }
-        }
+        let to_remove: Vec<RowId> = self.storage_for(&cmd.table_name)?
+            .scan()
+            .filter(|&(_row_id, row)| self.filter_row(&tbl, &row, &cmd.filters).unwrap_or(false))
+            .map(|(row_id, _)| row_id)
+            .collect();
 
         // Execute removal
         let removed = to_remove.len();
-        // FIXME: Mutable borrow, again - borrow checker
-        let storage = self.mut_storage_for(&cmd.table_name)?;
-        storage.delete_rows(to_remove);
+        // FIXME: Mutable borrow, again - borrow checker, storage.as_mut() doesn't work
+        self.mut_storage_for(&cmd.table_name)?.delete_rows(to_remove);
         Ok(removed)
     }
 

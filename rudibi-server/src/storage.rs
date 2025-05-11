@@ -4,14 +4,14 @@ use std::path::PathBuf;
 // Not flexible and too small, but OK for now
 pub type RowId = usize;
 
-// Rust requires a concrete implementation in return types or something.
+// Rust requires a concrete implementation in return types for traits or something.
 // This is a workaround.
-pub struct TableIterator {
-    iter: Box<dyn Iterator<Item = (RowId, StoredRow)>>,
+pub struct TableIterator<'a> {
+    iter: Box<dyn Iterator<Item = (RowId, &'a StoredRow)> + 'a>,
 }
 
-impl Iterator for TableIterator {
-    type Item = (RowId, StoredRow);
+impl<'a> Iterator for TableIterator<'a> {
+    type Item = (RowId, &'a StoredRow);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
@@ -43,8 +43,9 @@ impl Storage for InMemoryStorage {
     }
 
     fn scan(&self) -> TableIterator {
-        let cloned = self.content.clone(); // FIXME: Cloning EVERYTHING.
-        TableIterator { iter: Box::new(cloned.into_iter().enumerate()) }
+        TableIterator {
+            iter: Box::new(self.content.iter().enumerate())
+        }
     }
 
     fn delete_rows(&mut self, mut row_ids: Vec<RowId>) {
