@@ -290,8 +290,8 @@ impl Database {
                     let (col_idx, _) = schema.require_column(col).unwrap();
                     selected_row.push(row.get_column(col_idx));
                 }
-                StoredRow::of_columns(&selected_row);
-                results.push(row);
+                let projected = StoredRow::of_columns(&selected_row);
+                results.push(projected);
             }
         }
         Ok(results)

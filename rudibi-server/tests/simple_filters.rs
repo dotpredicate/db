@@ -90,6 +90,35 @@ mod tests {
     }
 
     #[test]
+    fn apply_projection() {
+        let mut db = Database::new();
+        db.new_table(&TableSchema::new("Fruits",
+            vec![
+                ColumnSchema::new("id", DataType::U32),
+                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
+            ],
+        )).unwrap();
+    
+        let rows = vec![
+            (100u32, "apple"),
+            (200u32, "banana"),
+            (300u32, "cherry"),
+        ];
+        for (id, name) in rows {
+            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
+            db.store(StoreCommand::new("Fruits", &["id", "name"], vec![row])).unwrap();
+        }
+    
+        let results = db.get(GetCommand::new("Fruits", &["name"],
+            vec![Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
+        )).unwrap();
+    
+        assert_eq!(results.len(), 1);
+        let row = &results[0];
+        assert_eq!(row.get_column(0), "banana".as_bytes());
+    }
+
+    #[test]
     fn test_multiple_filters() {
         let mut db = Database::new();
         db.new_table(&TableSchema::new("Fruits",
