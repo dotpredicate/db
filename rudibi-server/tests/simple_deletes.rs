@@ -1,130 +1,105 @@
 
-#[cfg(test)]
-mod tests {
+mod util;
+use rudibi_server::engine::*;
 
-    use rudibi_server::engine::*;
+#[test]
+fn test_delete_empty() {
+    // GIVEN
+    let mut db = util::empty_table();
 
-    #[test]
-    fn test_delete_with_equality_filter() {
-        let mut db = Database::new();
-        db.new_table(&TableSchema::new("Fruits",
-            vec![
-                ColumnSchema::new("id", DataType::U32),
-                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
-            ],
-        )).unwrap();
+    // WHEN
+    let deleted_count = db.delete(DeleteCommand::new("EmptyTable", vec![])).unwrap();
 
-        let rows = vec![
-            (100u32, "apple"),
-            (200u32, "banana"),
-            (300u32, "cherry"),
-        ];
-        for (id, name) in rows {
-            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
-            db.store(StoreCommand::new("Fruits", &["id", "name"], vec![row])).unwrap();
+    // THEN
+    assert_eq!(deleted_count, 0);
+}
+
+#[test]
+fn test_delete_with_equality_filter() {
+    // GIVEN
+    let mut db = util::fruits_table();
+
+    // WHEN
+    let deleted_count = db.delete(DeleteCommand::new("Fruits",
+        vec![Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
+    )).unwrap();
+
+    // THEN
+    assert_eq!(deleted_count, 2);
+    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    assert_eq!(results.len(), 2);
+    let schema = db.schema_for("Fruits").unwrap();
+    let names: Vec<String> = results.iter().map(|row| {
+        match db.get_column_value(&schema, &row, 1).unwrap() {
+            ColumnValue::String(name) => name,
+            x => panic!("Expected String, got {:?}", x),
         }
+    }).collect();
+    assert_eq!(names, vec!["apple", "cherry"]);
+}
 
-        let delete_cmd = DeleteCommand::new("Fruits",
-            vec![Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
-        );
-        let deleted_count = db.delete(delete_cmd).unwrap();
-        assert_eq!(deleted_count, 1);
+#[test]
+fn test_delete_with_greater_than_filter() {
+    // GIVEN
+    let mut db = util::fruits_table();
 
-        let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
-        assert_eq!(results.len(), 2);
-        let schema = db.schema_for("Fruits").unwrap();
-        let names: Vec<String> = results.iter().map(|row| {
-            match db.get_column_value(&schema, &row, 1).unwrap() {
-                ColumnValue::String(name) => name,
-                x => panic!("Expected String, got {:?}", x),
-            }
-        }).collect();
-        assert_eq!(names, vec!["apple", "cherry"]);
-    }
-
-    #[test]
-    fn test_delete_with_greater_than_filter() {
-        let mut db = Database::new();
-        db.new_table(&TableSchema::new("Fruits",
-            vec![
-                ColumnSchema::new("id", DataType::U32),
-                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
-            ],
-        )).unwrap();
-
-        let rows = vec![
-            (100u32, "apple"),
-            (200u32, "banana"),
-            (300u32, "cherry"),
-        ];
-        for (id, name) in rows {
-            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
-            db.store(StoreCommand::new("Fruits", &["id", "name"], vec![row])).unwrap();
+    // WHEN
+    let deleted_count = db.delete(DeleteCommand::new("Fruits",
+        vec![Filter::GreaterThan { column: "id".into(), value: 200u32.to_le_bytes().to_vec() }],
+    )).unwrap();
+    
+    // THEN
+    assert_eq!(deleted_count, 2);
+    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    assert_eq!(results.len(), 2);
+    let schema = db.schema_for("Fruits").unwrap();
+    let ids: Vec<u32> = results.iter().map(|row| {
+        if let ColumnValue::U32(id) = db.get_column_value(&schema, &row, 0).unwrap() {
+            id
+        } else {
+            panic!("Expected U32");
         }
+    }).collect();
+    assert_eq!(ids, vec![100, 200]);
+}
 
-        let delete_cmd = DeleteCommand::new("Fruits",
-            vec![Filter::GreaterThan { column: "id".into(), value: 200u32.to_le_bytes().to_vec() }],
-        );
-        let deleted_count = db.delete(delete_cmd).unwrap();
-        assert_eq!(deleted_count, 1);
+#[test]
+fn test_delete_all_rows() {
+    // GIVEN
+    let mut db = util::fruits_table();
 
-        let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
-        assert_eq!(results.len(), 2);
-        let schema = db.schema_for("Fruits").unwrap();
-        let ids: Vec<u32> = results.iter().map(|row| {
-            if let ColumnValue::U32(id) = db.get_column_value(&schema, &row, 0).unwrap() {
-                id
-            } else {
-                panic!("Expected U32");
-            }
-        }).collect();
-        assert_eq!(ids, vec![100, 200]);
-    }
+    // WHEN
+    let deleted_count = db.delete(DeleteCommand::new("Fruits", vec![])).unwrap();
 
-    #[test]
-    fn test_delete_all_rows() {
-        let mut db = Database::new();
-        db.new_table(&TableSchema::new("Fruits",
-            vec![
-                ColumnSchema::new("id", DataType::U32),
-                ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
-            ],
-        )).unwrap();
+    // THEN
+    assert_eq!(deleted_count, 4);
+    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    assert_eq!(results.len(), 0);
+}
 
-        let rows = vec![
-            (100u32, "apple"),
-            (200u32, "banana"),
-        ];
-        for (id, name) in rows {
-            let row = StoredRow::of_columns(&[&id.to_le_bytes(), name.as_bytes()]);
-            db.store(StoreCommand::new("Fruits", &["id", "name"], vec![row])).unwrap();
-        }
+#[test]
+fn test_delete_non_existent_table() {
+    // GIVEN
+    let mut db = Database::new();
+    
+    // WHEN
+    let delete_cmd = DeleteCommand::new("NonExistent", vec![]);
+    let result = db.delete(delete_cmd);
 
-        let delete_cmd = DeleteCommand::new("Fruits", vec![]);
-        let deleted_count = db.delete(delete_cmd).unwrap();
-        assert_eq!(deleted_count, 2);
+    // THEN
+    assert!(matches!(result, Err(DatabaseError::TableNotFound(ref s)) if s == "NonExistent"));
+}
 
-        let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
-        assert_eq!(results.len(), 0);
-    }
+#[test]
+fn test_delete_with_invalid_column() {
+    // GIVEN
+    let mut db = util::fruits_table();
 
-    #[test]
-    fn test_delete_non_existent_table() {
-        let mut db = Database::new();
-        let delete_cmd = DeleteCommand::new("NonExistent", vec![]);
-        let result = db.delete(delete_cmd);
-        assert!(matches!(result, Err(DatabaseError::TableNotFound(ref s)) if s == "NonExistent"));
-    }
+    // WHEN
+    let result = db.delete(DeleteCommand::new("Fruits",
+        vec![Filter::Equal { column: "invalid".into(), value: vec![] }],
+    ));
 
-    #[test]
-    fn test_delete_with_invalid_column() {
-        let mut db = Database::new();
-        db.new_table(&TableSchema::new("Fruits", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
-
-        let delete_cmd = DeleteCommand::new("Fruits",
-            vec![Filter::Equal { column: "invalid".into(), value: vec![] }],
-        );
-        let result = db.delete(delete_cmd);
-        assert!(matches!(result, Err(DatabaseError::ColumnNotFound(ref s)) if s == "invalid"));
-    }
+    // THEN
+    assert!(matches!(result, Err(DatabaseError::ColumnNotFound(ref s)) if s == "invalid"));
 }

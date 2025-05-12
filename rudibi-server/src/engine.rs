@@ -248,7 +248,7 @@ impl Database {
         return Ok(())
     }
 
-    pub fn store(&mut self, cmd: StoreCommand) -> Result<(), DatabaseError> {
+    pub fn store(&mut self, cmd: StoreCommand) -> Result<usize, DatabaseError> {
         let schema = self.schema_for(&cmd.table_name)?.clone();
         // FIXME: Shenanigans with immutable/mutable borrows
         let storage = self.mut_storage_for(&cmd.table_name)?;
@@ -258,11 +258,11 @@ impl Database {
             // Build the new StoredRow
             inserts.push(row);
         }
+        let stored = inserts.len();
 
         // Store the rows
         storage.store(inserts);
-
-        Ok(())
+        Ok(stored)
     }
 
     pub fn get(&self, cmd: GetCommand) -> Result<Vec<StoredRow>, DatabaseError> {
