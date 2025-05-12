@@ -89,12 +89,35 @@ impl TableSchema {
         }
     }
 
-    pub fn validate_columns(&self, columns: &Vec<String>) -> Result<(), DatabaseError> {
+    // Projecting columns in select clauses, filters, etc.
+    // Seen as projecting input columns to schema
+    pub fn project_to_schema_optional(&self, columns: &Vec<String>) -> Result<Vec<usize>, DatabaseError> {
         // FIXME: O(n^2) check
+        let mut indices = Vec::with_capacity(columns.len());
         for col in columns {
-            self.require_column(col)?;
+            let (col_idx, _) = self.require_column(col)?;
+            indices.push(col_idx);
         }
-        Ok(())
+        Ok(indices)
+    }
+
+    // Projecting columns in inserts where all columns are required
+    // Seen as projecting schema to input columns
+    // TODO: Allow partial inserts
+    pub fn project_from_schema_required(&self, columns: &Vec<String>) -> Result<Vec<usize>, DatabaseError> {
+        if columns.len() != self.columns.len() {
+            // FIXME: Better error here. Missing required column.
+            return Err(DatabaseError::InvalidColumnCount { expected: self.columns.len(), got: columns.len() });
+        }
+        // FIXME: O(n^2) check
+        let mut indices = Vec::with_capacity(self.columns.len());
+        for col in &self.columns {
+            // FIXME: Better error here. Missing required column.
+            let source_idx = columns.iter().position(|c| c == &col.name)
+                .ok_or_else(|| DatabaseError::ColumnNotFound(col.name.clone()))?;
+            indices.push(source_idx);
+        }
+        Ok(indices)
     }
 
     fn require_column(&self, name: &str) -> Result<(usize, &ColumnSchema), DatabaseError> {
@@ -103,17 +126,19 @@ impl TableSchema {
             .ok_or_else(|| DatabaseError::ColumnNotFound(name.to_string()))
     }
 
-    pub fn validate_input(&self, row: &StoredRow) -> Result<(), DatabaseError> {
+    fn validate_input(&self, row: &StoredRow, column_mapping: &Vec<usize>) -> Result<(), DatabaseError> {
         // Validate the number of columns
-        // TODO: allow partial inserts
         let input_offsets = row.offsets.len();
-        let input_cols = input_offsets - 1;
-        if input_cols != self.columns.len(){
-            return Err(DatabaseError::InvalidColumnCount { expected: self.columns.len(), got: input_cols }) ;
+        let input_columns = input_offsets - 1;
+
+        // Probably not needed here
+        // TODO: allow partial inserts for optional columns
+        if input_columns != column_mapping.len(){
+            return Err(DatabaseError::InvalidColumnCount { expected: self.columns.len(), got: input_columns }) ;
         }
         
         // Validate the row size
-        let input_size = row.data.len();
+        let input_size = row.content.len();
         if input_size > self.max_row_size {
             return Err(DatabaseError::RowSizeExceeded { got: input_size, max: self.max_row_size });
         }
@@ -121,18 +146,15 @@ impl TableSchema {
             return Err(DatabaseError::RowSizeTooSmall { got: input_size, min: self.min_row_size });
         }
 
-        // Validate each column for size
-        for (col_i, (offset, next_offset)) in row.offsets.iter().zip(row.offsets.iter().skip(1)).enumerate() {
-            let column_size = next_offset - offset;
-            let column = &self.columns[col_i];
-            let dtype = &column.dtype;
-            if column_size < dtype.min_size() || column_size > dtype.max_size() {
-                return Err(DatabaseError::ColumnSizeOutOfBounds {
-                    column: column.name.clone(),
-                    got: column_size,
-                    min: dtype.min_size(),
-                    max: dtype.max_size(),
-                });
+        // Validate each column in schema for size in input
+        for (idx, col) in self.columns.iter().enumerate() {
+            let input_col_idx = column_mapping[idx];
+            let input_col = row.get_column(input_col_idx);
+            let input_col_size = input_col.len();
+            let col_min = col.dtype.min_size();
+            let col_max = col.dtype.max_size();
+            if input_col_size < col_min || input_col_size > col_max {
+                return Err(DatabaseError::ColumnSizeOutOfBounds { column: col.name.clone(), got: input_col_size, min: col_min, max: col_max });
             }
         }
         Ok(())
@@ -141,8 +163,8 @@ impl TableSchema {
 
 #[derive(Debug, Clone)]
 pub struct StoredRow {
-    data: Vec<u8>,        // Contiguous buffer holding all column data
-    offsets: Vec<usize>,  // Start offsets for each column, plus end of last column
+    pub content: Vec<u8>,        // Contiguous buffer holding all column data
+    pub offsets: Vec<usize>,  // Start offsets for each column, plus end of last column
 }
 
 impl StoredRow {
@@ -150,34 +172,37 @@ impl StoredRow {
     pub fn of_columns(columns: &[&[u8]]) -> StoredRow {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
+        // Preallocating is slower??
+        // let mut data = Vec::with_capacity(columns.iter().map(|col| col.len()).sum());
+        // let mut offsets = Vec::with_capacity(columns.len() + 1);
         offsets.push(0);
         for col in columns {
             data.extend_from_slice(col);
             offsets.push(data.len());
         }
-        StoredRow { data, offsets }
+        StoredRow { content: data, offsets }
     }
 
     pub fn new(data: Vec<u8>, offsets: Vec<usize>) -> StoredRow {
-        StoredRow { data, offsets }
+        StoredRow { content: data, offsets }
     }
 
     pub fn get_column(&self, col_idx: usize) -> &[u8] {
         let start = self.offsets[col_idx];
         let end = self.offsets[col_idx + 1];
-        return &self.data[start..end];
+        return &self.content[start..end];
     }
 }
 
 pub struct StoreCommand {
     table_name: String,
-    _columns: Vec<String>, // FIXME: Allow partial inserts
+    columns: Vec<String>, // FIXME: Allow partial inserts
     what: Vec<StoredRow>
 }
 
 impl StoreCommand {
     pub fn new(table_name: &str, columns: &[&str], what: Vec<StoredRow>) -> StoreCommand {
-        StoreCommand { table_name: table_name.to_string(), _columns: columns.iter().map(|s| s.to_string()).collect(), what }
+        StoreCommand { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), what }
     }
 }
 
@@ -250,26 +275,32 @@ impl Database {
 
     pub fn store(&mut self, cmd: StoreCommand) -> Result<usize, DatabaseError> {
         let schema = self.schema_for(&cmd.table_name)?.clone();
-        // FIXME: Shenanigans with immutable/mutable borrows
         let storage = self.mut_storage_for(&cmd.table_name)?;
+        
+        let column_mapping = schema.project_from_schema_required(&cmd.columns)?;
+
         let mut inserts = Vec::new();
         for row in cmd.what {
-            schema.validate_input(&row)?;
+            schema.validate_input(&row, &column_mapping)?;
             // Build the new StoredRow
             inserts.push(row);
         }
         let stored = inserts.len();
 
         // Store the rows
-        storage.store(inserts);
+        storage.store(inserts, &column_mapping);
         Ok(stored)
     }
 
     pub fn get(&self, cmd: GetCommand) -> Result<Vec<StoredRow>, DatabaseError> {
         let schema = self.schema_for(&cmd.table_name)?;
         let storage = self.storage_for(&cmd.table_name)?;
-        // Validate projection columns
-        schema.validate_columns(&cmd.columns)?;
+
+        // Validate and project columns
+        let column_mapping = schema.project_to_schema_optional(&cmd.columns)?;
+
+        // TODO: Some mechanism of reporting / logging internal assertions
+        assert!(column_mapping.len() == cmd.columns.len(), "Column mapping should match the number of columns requested");
 
         // Validate filter columns
         // FIXME: Cloning
@@ -278,17 +309,17 @@ impl Database {
             Filter::GreaterThan { column, .. } => column.clone(),
             Filter::LessThan { column, .. } => column.clone(),
         }).collect();
-        schema.validate_columns(&filter_columns)?;
+        // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
+        schema.project_to_schema_optional(&filter_columns)?;
     
         // Filter and map rows
         let mut results = Vec::new();
         for (_, row) in storage.scan() {
-            // FIXME: Handle error while filtering
             if self.filter_row(&schema, &row, &cmd.filters)? {
                 let mut selected_row = Vec::new();
-                for col in &cmd.columns {
-                    let (col_idx, _) = schema.require_column(col).unwrap();
-                    selected_row.push(row.get_column(col_idx));
+                for proj_col in &column_mapping {
+                    // FIXME: Cloning
+                    selected_row.push(row.get_column(proj_col.clone()));
                 }
                 let projected = StoredRow::of_columns(&selected_row);
                 results.push(projected);
@@ -298,7 +329,7 @@ impl Database {
     }
 
     pub fn delete(&mut self, cmd: DeleteCommand) -> Result<usize, DatabaseError> {
-        let tbl = self.schema_for(&cmd.table_name)?;
+        let schema = self.schema_for(&cmd.table_name)?;
 
         // Validate filter columns
         let filter_columns: Vec<String> = cmd.filters.iter().map(|f| match f {
@@ -306,12 +337,12 @@ impl Database {
             Filter::GreaterThan { column, .. } => column.clone(),
             Filter::LessThan { column, .. } => column.clone(),
         }).collect();
-        tbl.validate_columns(&filter_columns)?;
+        schema.project_to_schema_optional(&filter_columns)?;
 
         // Filter rows to remove
         let to_remove: Vec<RowId> = self.storage_for(&cmd.table_name)?
             .scan()
-            .filter(|&(_row_id, row)| self.filter_row(&tbl, &row, &cmd.filters).unwrap_or(false))
+            .filter(|(_, row)| self.filter_row(&schema, &row, &cmd.filters).unwrap_or(false))
             .map(|(row_id, _)| row_id)
             .collect();
 

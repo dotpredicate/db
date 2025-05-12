@@ -16,6 +16,7 @@ fn store_nothing() {
     assert!(matches!(result, Ok(0)));
 }
 
+
 #[test]
 fn test_all_data_types() {
     let mut db = Database::new();
@@ -82,4 +83,31 @@ fn test_column_size_limits() {
     let short_row = StoredRow::of_columns(&[&utf8_val, &varbinary_val, &short_buffer]);
     let result = db.store(StoreCommand::new("SizeTest", &["utf8", "varbinary", "buffer"], vec![short_row]));
     assert_eq!(result, Err(DatabaseError::ColumnSizeOutOfBounds { column: "buffer".into(), got: 2, min: 3, max: 3 }));
+}
+
+#[test]
+fn test_out_of_order_store() {
+    // GIVEN
+    let mut db = Database::new();
+    db.new_table(&util::fruits_schema()).unwrap();
+
+    // WHEN
+    db.store(StoreCommand::new("Fruits", &["name", "id"], 
+        vec![
+            StoredRow::of_columns(&["banana".as_bytes(), &100u32.to_le_bytes()]),
+            StoredRow::of_columns(&["apple".as_bytes(), &200u32.to_le_bytes()]),
+        ]
+    )).unwrap();
+
+    // THEN
+    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    assert_eq!(results.len(), 2);
+    let schema = db.schema_for("Fruits").unwrap();
+    let names: Vec<String> = results.iter().map(|row| {
+        match db.get_column_value(&schema, &row, 1).unwrap() {
+            ColumnValue::String(name) => name,
+            x => panic!("Expected String, got {:?}", x),
+        }
+    }).collect();
+    assert_eq!(names, vec!["banana", "apple"]);
 }

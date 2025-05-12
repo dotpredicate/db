@@ -1,6 +1,6 @@
 
-use rudibi_server::engine::*;
 mod util;
+use rudibi_server::engine::*;
 
 #[test]
 fn test_equality() {
@@ -145,7 +145,7 @@ fn test_multiple_filters() {
 #[test]
 fn test_no_matching_rows() {
     // GIVEN
-    let mut db = util::fruits_table();
+    let db = util::fruits_table();
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["id", "name"],

@@ -20,7 +20,7 @@ impl<'a> Iterator for TableIterator<'a> {
 
 pub trait Storage {
     fn new(schema: TableSchema) -> Self where Self: Sized;
-    fn store(&mut self, rows: Vec<StoredRow>);
+    fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>);
     fn scan(&self) -> TableIterator;
     fn delete_rows(&mut self, row_ids: Vec<RowId>);
 }
@@ -38,8 +38,26 @@ impl Storage for InMemoryStorage {
         }
     }
 
-    fn store(&mut self, rows: Vec<StoredRow>) {
-        self.content.extend(rows);
+    fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>) {
+        let mut mapped_rows = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut offsets = Vec::with_capacity(column_mapping.len());
+            offsets.push(0);
+
+            let mut content = Vec::with_capacity(row.content.len());
+
+            for i in column_mapping {
+                let col = row.get_column(*i);
+                content.extend_from_slice(col);
+                offsets.push(content.len());
+            }
+            mapped_rows.push(StoredRow {
+                content,
+                offsets,
+            });
+        }
+
+        self.content.extend(mapped_rows);
     }
 
     fn scan(&self) -> TableIterator {
@@ -68,7 +86,7 @@ impl Storage for DiskStorage {
         unimplemented!()
     }
 
-    fn store(&mut self, _rows: Vec<StoredRow>) {
+    fn store(&mut self, _rows: Vec<StoredRow>, _column_mapping: &Vec<usize>) {
         // Implement file writing later
         unimplemented!()
     }

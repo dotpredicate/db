@@ -3,4 +3,9 @@ name = "rudibi-server"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+[dev-dependencies]
+divan = "0.1.21"
+
+[[bench]]
+name = "benchmark_store"
+harness = false

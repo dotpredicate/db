@@ -2,14 +2,18 @@
 
 use rudibi_server::engine::*;
 
-pub fn fruits_table() -> Database {
-    let mut db = Database::new();
-    db.new_table(&TableSchema::new("Fruits",
+pub fn fruits_schema() -> TableSchema {
+    TableSchema::new("Fruits",
         vec![
             ColumnSchema::new("id", DataType::U32),
             ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
-        ],
-    )).unwrap();
+        ]
+    )
+}
+
+pub fn fruits_table() -> Database {
+    let mut db = Database::new();
+    db.new_table(&fruits_schema()).unwrap();
 
     let rows = vec![
         (100u32, "apple"),
