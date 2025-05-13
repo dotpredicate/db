@@ -7,5 +7,5 @@ edition = "2024"
 divan = "0.1.21"
 
 [[bench]]
-name = "benchmark_store"
+name = "benchmarks"
 harness = false
