@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::storage::{InMemoryStorage, RowId, Storage};
+use crate::storage::{InMemoryStorage, RowContent, RowId, Storage};
 
 #[derive(Debug, Clone)]
 pub enum DataType {
@@ -72,10 +72,10 @@ pub enum ColumnValue {
 
 #[derive(Debug, Clone)]
 pub struct TableSchema {
-    name: String,
-    columns: Vec<ColumnSchema>,
-    min_row_size: usize,
-    max_row_size: usize,
+    pub name: String,
+    pub columns: Vec<ColumnSchema>,
+    pub min_row_size: usize,
+    pub max_row_size: usize,
 }
 
 impl TableSchema {
@@ -372,10 +372,8 @@ impl Database {
     }
 
     // TODO: This probably should go somewhere else
-    pub fn get_column_value(&self, schema: &TableSchema, row: &StoredRow, col_idx: usize) -> Result<ColumnValue, DatabaseError> {
-        let col_scheme = &schema.columns[col_idx];
-        let data = row.get_column(col_idx);
-        match col_scheme.dtype {
+    pub fn canonical_column(&self, schema: &ColumnSchema, data: &[u8]) -> Result<ColumnValue, DatabaseError> {
+        match schema.dtype {
             DataType::U32 => { Ok(ColumnValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| DatabaseError::ConversionError)?))) }
             DataType::F64 => { Ok(ColumnValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| DatabaseError::ConversionError)?))) }
             DataType::UTF8 { .. } => Ok(ColumnValue::String(
@@ -391,8 +389,14 @@ impl Database {
         }
     }
 
+    // TODO: This probably should go somewhere else. Like a client-side util?
+    pub fn get_column_value(&self, schema: &TableSchema, row: &StoredRow, col_idx: usize) -> Result<ColumnValue, DatabaseError> {
+        let col_scheme = &schema.columns[col_idx];
+        self.canonical_column(col_scheme, row.get_column(col_idx))
+    }
+
     // TODO: This probably should go somewhere else
-    fn filter_row(&self, schema: &TableSchema, row: &StoredRow, filters: &[Filter]) -> Result<bool, DatabaseError> {
+    fn filter_row(&self, schema: &TableSchema, row: &RowContent, filters: &[Filter]) -> Result<bool, DatabaseError> {
         for filter in filters {
             let (column, value) = match filter {
                 Filter::Equal { column, value } => (column, value),
@@ -400,7 +404,7 @@ impl Database {
                 Filter::LessThan { column, value } => (column, value),
             };
             let (col_idx, col_scheme) = schema.require_column(column)?;
-            let col_value = self.get_column_value(&schema, row, col_idx)?;
+            let col_value = self.canonical_column(&col_scheme, row.get_column(col_idx))?;
             let filter_val = self.convert_filter_value(value, &col_scheme.dtype);
     
             let passes = match filter {

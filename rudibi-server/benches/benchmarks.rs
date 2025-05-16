@@ -90,10 +90,7 @@ fn delete_all(bencher: divan::Bencher, n: u32) {
 #[divan::bench(
     sample_count = 10,
     sample_size = 5,
-    // Too slow for +100K
-    // Runs for ~400ms for 50k
-    // Runs for ~1.5s for 100K
-    args = [1, 10, 100, 1_000, 10_000, 50_000]
+    args = [1, 10, 100, 1_000, 10_000, 25_000]
 )]
 fn delete_first_half(bencher: divan::Bencher, n: u32) {
     bencher.with_inputs(|| { 
