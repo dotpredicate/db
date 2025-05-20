@@ -36,16 +36,27 @@ pub fn empty_table(storage: StorageConfig) -> Database {
 }
 
 
-// Fuck you, Rust, I won't be using a dependency just to generate a random number 
-use std::{fs, env};
+
+use std::{env, fs::{self, File}};
+
+// A retarted way to obtain a new random file for testing purposes
+// Fuck you, Rust, I won't be using a dependency just to create a file.
+// The commonly used "tempfile" also tries to make a new file in a loop, this isn't that much worse!
+// https://github.com/Stebalien/tempfile/blob/99ffea61ade621161db326b6745c7b36a90ddbd0/src/util.rs#L40
+// FIXME: There should be at least *some* randomness in generating a new filename
 pub fn random_temp_file() -> String {
     let mut num = 0;
     let tmp = env::temp_dir();
-    loop {
+    let new_file = loop {
         let fname = format!("{}/test_{}.db", tmp.display(), num);
-        if !fs::exists(&fname).unwrap() {
-            return fname;
+        match File::create_new(fname.clone()) {
+            Ok(_) => {
+                break fname;
+            }
+            Err(_) => (),
         }
         num += 1;
-    }
+    };
+    fs::remove_file(new_file.clone()).unwrap();
+    new_file
 }

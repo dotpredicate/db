@@ -157,20 +157,34 @@ impl InMemoryStorage {
 use std::io::{Write, BufWriter, Read, BufReader};
 use std::fs::File;
 pub struct DiskStorage {
-    _schema: TableSchema,
+    schema: TableSchema,
     file_path: String,
     file: BufWriter<File>,
 }
 
+type MagicType = [u8; 4];
+const HEADER_MAGIC: &MagicType = b"RDBI";
+
 impl DiskStorage {
 
-    pub fn new(_schema: TableSchema, path: &str) -> Self {
+    pub fn new(schema: TableSchema, path: &str) -> Self {
         let file = File::create(path).expect("Failed to create file");
+        let mut writer = BufWriter::new(file);
+
+        writer.write_all(HEADER_MAGIC).expect("Failed to write magic number");
+        writer.write_all(&(schema.columns.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
+
         DiskStorage {
-            _schema,
+            schema,
             file_path: path.to_string(),
-            file: BufWriter::new(file),
+            file: writer,
         }
+    }
+}
+
+impl Drop for DiskStorage {
+    fn drop(&mut self) {
+        self.file.flush().expect("Failed to flush file");
     }
 }
 
@@ -184,10 +198,6 @@ impl Storage for DiskStorage {
         for row in rows {
             println!("\nRow: {:?}", row);
             println!("Column mapping: {:?}", column_mapping);
-            // Column offsets size
-            self.file
-                .write_all(&row.offsets.len().to_le_bytes())
-                .expect("Failed to write offsets length");
             
             // Column offsets
             // FIXME: This is bad.
@@ -224,31 +234,34 @@ impl Storage for DiskStorage {
         // TODO: Use mmap instead
         let mut reader = BufReader::new(File::open(&self.file_path).expect("Failed to open file"));
         let mut row_num: RowId = 0;
+        let mut magic_buf = MagicType::default();
+        reader.read_exact(&mut magic_buf).expect("Failed to read magic number");
+        assert_eq!(&magic_buf, HEADER_MAGIC);
+        let mut offsets_per_row_buf = usize::to_le_bytes(0);
+        reader.read_exact(&mut offsets_per_row_buf).expect("Failed to read offsets per row");
+
+        let num_offsets = usize::from_le_bytes(offsets_per_row_buf);
+        println!("Number of offsets per row: {num_offsets}");
+
         TableIterator { 
             iter: Box::new(std::iter::from_fn(move || {
-                let mut len_buf = usize::to_le_bytes(0);
-
                 println!("\nReading row {row_num}...");
-                // Read number of offsets
-                if reader.read_exact(&mut len_buf).is_err_and(|x| x.kind() == std::io::ErrorKind::UnexpectedEof) {
+
+                // Read row column offsets
+                let mut offsets_buf = vec![0u8; num_offsets * size_of::<usize>()];
+                if reader.read_exact(&mut offsets_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
                     println!("End of file - no more rows");
-                    return None; // End of file or error
+                    return None;
                 }
-                let num_offsets = usize::from_le_bytes(len_buf) as usize;
-                println!("Number of offsets: {num_offsets}");
-                
-                // Read each offset
-                let mut offsets = Vec::with_capacity(num_offsets);
-                for _ in 0..num_offsets {
-                    reader.read_exact(&mut len_buf).expect("Failed to read offset");
-                    offsets.push(usize::from_le_bytes(len_buf) as usize);
-                }
+                let offsets: Vec<usize> = offsets_buf.chunks(size_of::<usize>())
+                    .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
+                    .collect();
                 println!("Offsets: {:?}", offsets);
 
                 // Read content length
+                let mut len_buf = usize::to_le_bytes(0);
                 reader.read_exact(&mut len_buf).expect("Failed to read content length");
-                let content_len = usize::from_le_bytes(len_buf) as usize;
-                println!("Content length: {content_len}");
+                let content_len = usize::from_le_bytes(len_buf);
 
                 // Read content
                 let mut content = vec![0u8; content_len];
