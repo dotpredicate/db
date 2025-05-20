@@ -9,16 +9,24 @@ fn store_unknown_table() {
     assert_eq!(result, Err(DatabaseError::TableNotFound("UnknownTable".to_string())));
 }
 
-#[test]
-fn store_nothing() {
-    let mut db = util::empty_table();
+fn store_nothing(storage: StorageConfig) {
+    let mut db = util::empty_table(storage);
     let result = db.store(StoreCommand::new("EmptyTable", &["id"], vec![]));
     assert!(matches!(result, Ok(0)));
 }
 
+#[test]
+fn store_nothing_in_mem() {
+    store_nothing(StorageConfig::InMemory);
+}
 
 #[test]
-fn test_all_data_types() {
+fn store_nothing_on_disk() {
+    store_nothing(StorageConfig::Disk { path: util::random_temp_file() });
+}
+
+
+fn test_all_data_types(storage: StorageConfig) {
     let mut db = Database::new();
     db.new_table(&TableSchema::new("MixedTypes",
         vec![
@@ -28,7 +36,7 @@ fn test_all_data_types() {
             ColumnSchema::new("binary", DataType::VARBINARY { max_length: 5 }),
             ColumnSchema::new("buffer", DataType::BUFFER { length: 3 }),
         ]
-    )).unwrap();
+    ), storage).unwrap();
 
     let row = StoredRow::of_columns(&[
         &42u32.to_le_bytes(),
@@ -53,7 +61,17 @@ fn test_all_data_types() {
 }
 
 #[test]
-fn test_column_size_limits() {
+fn test_all_data_types_in_mem() {
+    test_all_data_types(StorageConfig::InMemory);
+}
+
+#[test]
+fn test_all_data_types_on_disk() {
+    test_all_data_types(StorageConfig::Disk { path: util::random_temp_file() });
+}
+
+
+fn test_column_size_limits(storage: StorageConfig) {
     let mut db = Database::new();
     db.new_table(&TableSchema::new("SizeTest",
         vec![
@@ -61,7 +79,7 @@ fn test_column_size_limits() {
             ColumnSchema::new("varbinary", DataType::VARBINARY { max_length: 5 }),
             ColumnSchema::new("buffer", DataType::BUFFER { length: 3 }),
         ]
-    )).unwrap();
+    ), storage).unwrap();
 
     // Test valid sizes
     let utf8_val = "abc".as_bytes().to_vec(); // 3 bytes, within 0-5
@@ -86,10 +104,19 @@ fn test_column_size_limits() {
 }
 
 #[test]
-fn test_out_of_order_store() {
+fn test_column_size_limits_in_mem() {
+    test_column_size_limits(StorageConfig::InMemory);
+}
+
+#[test]
+fn test_column_size_limits_on_disk() {
+    test_column_size_limits(StorageConfig::Disk { path: util::random_temp_file() });
+}
+
+fn test_out_of_order_store(storage: StorageConfig) {
     // GIVEN
     let mut db = Database::new();
-    db.new_table(&util::fruits_schema()).unwrap();
+    db.new_table(&util::fruits_schema(), storage).unwrap();
 
     // WHEN
     db.store(StoreCommand::new("Fruits", &["name", "id"], 
@@ -110,4 +137,14 @@ fn test_out_of_order_store() {
         }
     }).collect();
     assert_eq!(names, vec!["banana", "apple"]);
+}
+
+#[test]
+fn test_out_of_order_store_in_mem() {
+    test_out_of_order_store(StorageConfig::InMemory);
+}
+
+#[test]
+fn test_out_of_order_store_on_disk() {
+    test_out_of_order_store(StorageConfig::Disk { path: util::random_temp_file() });
 }

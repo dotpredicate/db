@@ -15,7 +15,7 @@ fn main() {
 fn batch_store_u32(bencher: divan::Bencher, n: u32) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -34,7 +34,7 @@ fn batch_store_u32(bencher: divan::Bencher, n: u32) {
 fn select_half_filter_lt(bencher: divan::Bencher, n: u32) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -54,7 +54,7 @@ fn select_half_filter_lt(bencher: divan::Bencher, n: u32) {
 fn select_all(bencher: divan::Bencher, n: u32) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -75,7 +75,7 @@ fn select_all(bencher: divan::Bencher, n: u32) {
 fn delete_all(bencher: divan::Bencher, n: u32) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -95,7 +95,7 @@ fn delete_all(bencher: divan::Bencher, n: u32) {
 fn delete_first_half(bencher: divan::Bencher, n: u32) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))

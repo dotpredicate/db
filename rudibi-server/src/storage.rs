@@ -1,11 +1,11 @@
 use crate::engine::{StoredRow, TableSchema};
-use std::path::PathBuf;
 
 // Not flexible and too small, but OK for now
 pub type RowId = usize;
 type ScanItem<'a> = (RowId, RowContent<'a>);
 
 
+#[derive(Debug)]
 pub struct RowContent<'a> {
     pub data: &'a [u8],
     pub offsets: &'a [usize],
@@ -22,8 +22,16 @@ impl RowContent<'_> {
 
 // Rust requires a concrete implementation in return types for traits or something.
 // This is a workaround.
+type RowIter<'a> = Box<dyn Iterator<Item = ScanItem<'a>> + 'a>;
+
 pub struct TableIterator<'a> {
-    iter: Box<dyn Iterator<Item = ScanItem<'a>> + 'a>,
+    iter: RowIter<'a>,
+}
+
+impl<'a> TableIterator<'a> {
+    pub fn new(iter: RowIter<'a>) -> Self {
+        TableIterator { iter }
+    }
 }
 
 impl<'a> Iterator for TableIterator<'a> {
@@ -35,7 +43,6 @@ impl<'a> Iterator for TableIterator<'a> {
 }
 
 pub trait Storage {
-    fn new(schema: TableSchema) -> Self where Self: Sized;
     fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>);
     fn scan(&self) -> TableIterator;
     fn delete_rows(&mut self, row_ids: Vec<RowId>);
@@ -51,15 +58,6 @@ pub struct InMemoryStorage {
 }
 
 impl Storage for InMemoryStorage {
-    fn new(schema: TableSchema) -> Self {
-        InMemoryStorage {
-            offsets_per_row: schema.columns.len() + 1,
-            _schema: schema,
-            data: Vec::new(),
-            relative_column_offsets: Vec::new(),
-            row_data_starts: Vec::new(),
-        }
-    }
 
     fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>) {
         self.row_data_starts.reserve(rows.len());
@@ -125,6 +123,16 @@ impl Storage for InMemoryStorage {
 
 impl InMemoryStorage {
 
+    pub fn new(schema: TableSchema) -> Self {
+        InMemoryStorage {
+            offsets_per_row: schema.columns.len() + 1,
+            _schema: schema,
+            data: Vec::new(),
+            relative_column_offsets: Vec::new(),
+            row_data_starts: Vec::new(),
+        }
+    }
+
     fn get_row_content(&self, row_id: RowId) -> Option<RowContent> {
         if row_id < self.row_data_starts.len() {
             let start = self.row_data_starts[row_id];
@@ -145,26 +153,122 @@ impl InMemoryStorage {
     }
 }
 
+
+use std::io::{Write, BufWriter, Read, BufReader};
+use std::fs::File;
 pub struct DiskStorage {
     _schema: TableSchema,
-    _file: PathBuf,
+    file_path: String,
+    file: BufWriter<File>,
+}
+
+impl DiskStorage {
+
+    pub fn new(_schema: TableSchema, path: &str) -> Self {
+        let file = File::create(path).expect("Failed to create file");
+        DiskStorage {
+            _schema,
+            file_path: path.to_string(),
+            file: BufWriter::new(file),
+        }
+    }
 }
 
 // TODO: Implement disk storage
 impl Storage for DiskStorage {
-    fn new(_schema: TableSchema) -> Self {
-        unimplemented!()
-    }
+    
+    fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>) {
+        println!("DiskStorage::store - start - storing {} rows", rows.len());
+        // TODO: Storage error handling
+        // TODO: This is probably not optimal
+        for row in rows {
+            println!("\nRow: {:?}", row);
+            println!("Column mapping: {:?}", column_mapping);
+            // Column offsets size
+            self.file
+                .write_all(&row.offsets.len().to_le_bytes())
+                .expect("Failed to write offsets length");
+            
+            // Column offsets
+            // FIXME: This is bad.
+            let mut last_offset: usize = 0;
+            self.file.write(&last_offset.to_le_bytes()).expect("Failed to write initial column offset");
+            for next_col in column_mapping {
+                let sz = row.offsets[*next_col + 1] - row.offsets[*next_col];
+                println!("Last offset: {last_offset}, size: {sz}");
+                last_offset += sz;
+                self.file
+                    .write(&last_offset.to_le_bytes())
+                    .expect("Failed to write offset");
+            }
+            
+            // Row content length
+            self.file
+                .write_all(&row.content.len().to_le_bytes())
+                .expect("Failed to write content length");
 
-    fn store(&mut self, _rows: Vec<StoredRow>, _column_mapping: &Vec<usize>) {
-        // Implement file writing later
-        unimplemented!()
+            // Row content
+            for next_col in column_mapping {
+                let col = row.get_column(*next_col);
+                println!("Column {next_col}: {:?}", col);
+                self.file
+                    .write_all(col)
+                    .expect("Failed to write column");
+            }
+        }
+        self.file.flush().expect("Failed to flush file");
+        println!("\nDiskStorage::store - finished\n");
     }
 
     fn scan(&self) -> TableIterator {
-        // Implement file scanning later
-        // unimplemented!()
-        TableIterator { iter: Box::new(Vec::new().into_iter()) }
+        // TODO: Use mmap instead
+        let mut reader = BufReader::new(File::open(&self.file_path).expect("Failed to open file"));
+        let mut row_num: RowId = 0;
+        TableIterator { 
+            iter: Box::new(std::iter::from_fn(move || {
+                let mut len_buf = usize::to_le_bytes(0);
+
+                println!("\nReading row {row_num}...");
+                // Read number of offsets
+                if reader.read_exact(&mut len_buf).is_err_and(|x| x.kind() == std::io::ErrorKind::UnexpectedEof) {
+                    println!("End of file - no more rows");
+                    return None; // End of file or error
+                }
+                let num_offsets = usize::from_le_bytes(len_buf) as usize;
+                println!("Number of offsets: {num_offsets}");
+                
+                // Read each offset
+                let mut offsets = Vec::with_capacity(num_offsets);
+                for _ in 0..num_offsets {
+                    reader.read_exact(&mut len_buf).expect("Failed to read offset");
+                    offsets.push(usize::from_le_bytes(len_buf) as usize);
+                }
+                println!("Offsets: {:?}", offsets);
+
+                // Read content length
+                reader.read_exact(&mut len_buf).expect("Failed to read content length");
+                let content_len = usize::from_le_bytes(len_buf) as usize;
+                println!("Content length: {content_len}");
+
+                // Read content
+                let mut content = vec![0u8; content_len];
+                reader.read_exact(&mut content).expect("Failed to read content");
+                println!("Content: {:?}", content);
+
+                // Create scan item
+                // FIXME: Dark Rust magic
+                let content_box = content.into_boxed_slice();
+                let offsets_box = offsets.into_boxed_slice();
+                let row_content = RowContent {
+                    data: Box::leak(content_box),
+                    offsets: Box::leak(offsets_box),
+                };
+                print!("Row content: {row_content:?}\n");
+                let row_id = row_num.clone();
+                row_num += 1;
+                Some((row_id, row_content))
+            }))
+        }
     }
 
     fn delete_rows(&mut self, _row_ids: Vec<RowId>) {
@@ -172,3 +276,4 @@ impl Storage for DiskStorage {
         unimplemented!()
     }
 }
+

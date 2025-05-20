@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::storage::{InMemoryStorage, RowContent, RowId, Storage};
+use crate::storage::{DiskStorage, InMemoryStorage, RowContent, RowId, Storage};
 
 #[derive(Debug, Clone)]
 pub enum DataType {
@@ -239,6 +239,11 @@ impl DeleteCommand {
     }
 }
 
+pub enum StorageConfig {
+    InMemory,
+    Disk { path: String },
+}
+
 pub struct Database {
     schemas: HashMap<String, TableSchema>,
     storage: HashMap<String, Box<dyn Storage>>
@@ -252,7 +257,11 @@ impl Database {
         }
     }
 
-    pub fn new_table(&mut self, new_table: &TableSchema) -> Result<(), DatabaseError> {
+    pub fn in_mem(&mut self, new_table: &TableSchema) -> Result<(), DatabaseError> {
+        self.new_table(new_table, StorageConfig::InMemory)
+    }
+
+    pub fn new_table(&mut self, new_table: &TableSchema, storage_cfg: StorageConfig) -> Result<(), DatabaseError> {
         let table_name = &new_table.name;
         if let Some(_) = self.schemas.get(table_name) {
             return Err(DatabaseError::TableAlreadyExists(table_name.clone()));
@@ -263,9 +272,13 @@ impl Database {
         }
 
         self.schemas.insert(table_name.to_owned(), new_table.clone());
-        // TODO: Allow for choosing storage engine
-        let storage = InMemoryStorage::new(new_table.clone());
-        let old_storage = self.storage.insert(table_name.to_owned(), Box::new(storage));
+
+        let storage: Box<dyn Storage> = match storage_cfg {
+            StorageConfig::InMemory => Box::new(InMemoryStorage::new(new_table.clone())),
+            StorageConfig::Disk { path } => Box::new(DiskStorage::new(new_table.clone(), &path)),
+        };
+
+        let old_storage = self.storage.insert(table_name.to_owned(), storage);
         if old_storage.is_some() {
             // TODO: What to do in this case?
             return Err(DatabaseError::TableAlreadyExists(table_name.clone()));

@@ -1,5 +1,4 @@
 
-
 use rudibi_server::engine::*;
 
 pub fn fruits_schema() -> TableSchema {
@@ -11,9 +10,9 @@ pub fn fruits_schema() -> TableSchema {
     )
 }
 
-pub fn fruits_table() -> Database {
+pub fn fruits_table(storage: StorageConfig) -> Database {
     let mut db = Database::new();
-    db.new_table(&fruits_schema()).unwrap();
+    db.in_mem(&fruits_schema()).unwrap();
 
     let rows = vec![
         (100u32, "apple"),
@@ -30,8 +29,23 @@ pub fn fruits_table() -> Database {
     return db;
 }
 
-pub fn empty_table() -> Database {
+pub fn empty_table(storage: StorageConfig) -> Database {
     let mut db = Database::new();
-    db.new_table(&TableSchema::new("EmptyTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+    db.in_mem(&TableSchema::new("EmptyTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
     return db;
+}
+
+
+// Fuck you, Rust, I won't be using a dependency just to generate a random number 
+use std::{fs, env};
+pub fn random_temp_file() -> String {
+    let mut num = 0;
+    let tmp = env::temp_dir();
+    loop {
+        let fname = format!("{}/test_{}.db", tmp.display(), num);
+        if !fs::exists(&fname).unwrap() {
+            return fname;
+        }
+        num += 1;
+    }
 }

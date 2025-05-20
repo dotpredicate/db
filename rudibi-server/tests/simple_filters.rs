@@ -5,7 +5,7 @@ use rudibi_server::engine::*;
 #[test]
 fn test_equality() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["id", "name"],
@@ -38,7 +38,7 @@ fn test_equality() {
 #[test]
 fn test_gt() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["id", "name"],
@@ -70,7 +70,7 @@ fn test_gt() {
 #[test]
 fn test_gt_utf8_unsupported() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let result = db.get(GetCommand::new("Fruits", &["name"],
@@ -88,7 +88,7 @@ fn test_gt_utf8_unsupported() {
 #[test]
 fn test_lt() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // Test 3: LessThan filter on U32
     let results = db.get(GetCommand::new("Fruits", &["id", "name"],
@@ -107,7 +107,7 @@ fn test_lt() {
 #[test]
 fn apply_projection() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["name"],
@@ -123,7 +123,7 @@ fn apply_projection() {
 #[test]
 fn test_multiple_filters() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["id", "name"],
@@ -145,7 +145,7 @@ fn test_multiple_filters() {
 #[test]
 fn test_no_matching_rows() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["id", "name"],
@@ -159,7 +159,7 @@ fn test_no_matching_rows() {
 #[test]
 fn test_no_filters() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
@@ -171,7 +171,7 @@ fn test_no_filters() {
 #[test]
 fn test_invalid_column() {
     // GIVEN
-    let db = util::fruits_table();
+    let db = util::fruits_table(StorageConfig::InMemory);
 
     // WHEN
     let result = db.get(GetCommand::new("Fruits", &["invalid_column"], vec![]));
