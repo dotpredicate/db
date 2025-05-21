@@ -7,5 +7,9 @@ edition = "2024"
 divan = "0.1.21"
 
 [[bench]]
-name = "benchmarks"
+name = "bench_disk"
+harness = false
+
+[[bench]]
+name = "bench_memory"
 harness = false

@@ -1,21 +1,11 @@
-
 use rudibi_server::engine::*;
-use divan;
 
-fn main() {
-    // Run registered benchmarks.
-    divan::main();
-}
+use divan::Bencher;
 
-#[divan::bench(
-    sample_count = 10,
-    sample_size = 5,
-    args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
-)]
-fn batch_store_u32(bencher: divan::Bencher, n: u32) {
+pub fn batch_store_u32(bencher: Bencher, n: u32, storage: StorageConfig) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)]), storage.clone()).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -26,15 +16,10 @@ fn batch_store_u32(bencher: divan::Bencher, n: u32) {
     });
 }
 
-#[divan::bench(
-    sample_count = 10,
-    sample_size = 5,
-    args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
-)]
-fn select_half_filter_lt(bencher: divan::Bencher, n: u32) {
+pub fn select_half_filter_lt(bencher: divan::Bencher, n: u32, storage: StorageConfig) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)]), storage.clone()).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -46,15 +31,10 @@ fn select_half_filter_lt(bencher: divan::Bencher, n: u32) {
     });
 }
 
-#[divan::bench(
-    sample_count = 10,
-    sample_size = 5,
-    args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
-)]
-fn select_all(bencher: divan::Bencher, n: u32) {
+pub fn select_all(bencher: divan::Bencher, n: u32, storage: StorageConfig) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)]), storage.clone()).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -64,18 +44,13 @@ fn select_all(bencher: divan::Bencher, n: u32) {
     }).bench_values(|db| {
         db.get(GetCommand::new("TestTable", &["id"], vec![])).unwrap();
     });
-
 }
 
-#[divan::bench(
-    sample_count = 10,
-    sample_size = 5,
-    args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
-)]
-fn delete_all(bencher: divan::Bencher, n: u32) {
+
+pub fn delete_all(bencher: divan::Bencher, n: u32, storage: StorageConfig) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)]), storage.clone()).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))
@@ -87,15 +62,10 @@ fn delete_all(bencher: divan::Bencher, n: u32) {
     });
 }
 
-#[divan::bench(
-    sample_count = 10,
-    sample_size = 5,
-    args = [1, 10, 100, 1_000, 10_000, 25_000]
-)]
-fn delete_first_half(bencher: divan::Bencher, n: u32) {
+pub fn delete_first_half(bencher: divan::Bencher, n: u32, storage: StorageConfig) {
     bencher.with_inputs(|| { 
         let mut db = Database::new();
-        db.in_mem(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+        db.new_table(&TableSchema::new("TestTable", vec![ColumnSchema::new("id", DataType::U32)]), storage.clone()).unwrap();
 
         let rows: Vec<StoredRow> = (0..n)
             .map(|i| StoredRow::of_columns(&[&i.to_le_bytes()]))

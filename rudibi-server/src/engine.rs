@@ -239,10 +239,13 @@ impl DeleteCommand {
     }
 }
 
+#[derive(Clone)]
 pub enum StorageConfig {
     InMemory,
     Disk { path: String },
 }
+
+
 
 pub struct Database {
     schemas: HashMap<String, TableSchema>,

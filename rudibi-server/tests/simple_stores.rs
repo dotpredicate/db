@@ -1,6 +1,6 @@
 
-mod util;
 use rudibi_server::engine::*;
+use rudibi_server::testlib;
 
 #[test]
 fn store_unknown_table() {
@@ -10,7 +10,7 @@ fn store_unknown_table() {
 }
 
 fn store_nothing(storage: StorageConfig) {
-    let mut db = util::empty_table(storage);
+    let mut db = testlib::empty_table(storage);
     let result = db.store(StoreCommand::new("EmptyTable", &["id"], vec![]));
     assert!(matches!(result, Ok(0)));
 }
@@ -22,7 +22,7 @@ fn store_nothing_in_mem() {
 
 #[test]
 fn store_nothing_on_disk() {
-    store_nothing(StorageConfig::Disk { path: util::random_temp_file() });
+    store_nothing(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 
@@ -67,7 +67,7 @@ fn test_all_data_types_in_mem() {
 
 #[test]
 fn test_all_data_types_on_disk() {
-    test_all_data_types(StorageConfig::Disk { path: util::random_temp_file() });
+    test_all_data_types(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 
@@ -110,13 +110,13 @@ fn test_column_size_limits_in_mem() {
 
 #[test]
 fn test_column_size_limits_on_disk() {
-    test_column_size_limits(StorageConfig::Disk { path: util::random_temp_file() });
+    test_column_size_limits(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 fn test_out_of_order_store(storage: StorageConfig) {
     // GIVEN
     let mut db = Database::new();
-    db.new_table(&util::fruits_schema(), storage).unwrap();
+    db.new_table(&testlib::fruits_schema(), storage).unwrap();
 
     // WHEN
     db.store(StoreCommand::new("Fruits", &["name", "id"], 
@@ -146,5 +146,5 @@ fn test_out_of_order_store_in_mem() {
 
 #[test]
 fn test_out_of_order_store_on_disk() {
-    test_out_of_order_store(StorageConfig::Disk { path: util::random_temp_file() });
+    test_out_of_order_store(StorageConfig::Disk { path: testlib::random_temp_file() });
 }

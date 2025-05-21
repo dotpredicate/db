@@ -192,12 +192,12 @@ impl Drop for DiskStorage {
 impl Storage for DiskStorage {
     
     fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>) {
-        println!("DiskStorage::store - start - storing {} rows", rows.len());
+        // println!("DiskStorage::store - start - storing {} rows", rows.len());
         // TODO: Storage error handling
         // TODO: This is probably not optimal
         for row in rows {
-            println!("\nRow: {:?}", row);
-            println!("Column mapping: {:?}", column_mapping);
+            // println!("\nRow: {:?}", row);
+            // println!("Column mapping: {:?}", column_mapping);
             
             // Column offsets
             // FIXME: This is bad.
@@ -205,7 +205,7 @@ impl Storage for DiskStorage {
             self.file.write(&last_offset.to_le_bytes()).expect("Failed to write initial column offset");
             for next_col in column_mapping {
                 let sz = row.offsets[*next_col + 1] - row.offsets[*next_col];
-                println!("Last offset: {last_offset}, size: {sz}");
+                // println!("Last offset: {last_offset}, size: {sz}");
                 last_offset += sz;
                 self.file
                     .write(&last_offset.to_le_bytes())
@@ -220,14 +220,14 @@ impl Storage for DiskStorage {
             // Row content
             for next_col in column_mapping {
                 let col = row.get_column(*next_col);
-                println!("Column {next_col}: {:?}", col);
+                // println!("Column {next_col}: {:?}", col);
                 self.file
                     .write_all(col)
                     .expect("Failed to write column");
             }
         }
         self.file.flush().expect("Failed to flush file");
-        println!("\nDiskStorage::store - finished\n");
+        // println!("\nDiskStorage::store - finished\n");
     }
 
     fn scan(&self) -> TableIterator {
@@ -241,22 +241,22 @@ impl Storage for DiskStorage {
         reader.read_exact(&mut offsets_per_row_buf).expect("Failed to read offsets per row");
 
         let num_offsets = usize::from_le_bytes(offsets_per_row_buf);
-        println!("Number of offsets per row: {num_offsets}");
+        // println!("Number of offsets per row: {num_offsets}");
 
         TableIterator { 
             iter: Box::new(std::iter::from_fn(move || {
-                println!("\nReading row {row_num}...");
+                // println!("\nReading row {row_num}...");
 
                 // Read row column offsets
                 let mut offsets_buf = vec![0u8; num_offsets * size_of::<usize>()];
                 if reader.read_exact(&mut offsets_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
-                    println!("End of file - no more rows");
+                    // println!("End of file - no more rows");
                     return None;
                 }
                 let offsets: Vec<usize> = offsets_buf.chunks(size_of::<usize>())
                     .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
                     .collect();
-                println!("Offsets: {:?}", offsets);
+                // println!("Offsets: {:?}", offsets);
 
                 // Read content length
                 let mut len_buf = usize::to_le_bytes(0);
@@ -266,7 +266,7 @@ impl Storage for DiskStorage {
                 // Read content
                 let mut content = vec![0u8; content_len];
                 reader.read_exact(&mut content).expect("Failed to read content");
-                println!("Content: {:?}", content);
+                // println!("Content: {:?}", content);
 
                 // Create scan item
                 // FIXME: Dark Rust magic
@@ -276,7 +276,7 @@ impl Storage for DiskStorage {
                     data: Box::leak(content_box),
                     offsets: Box::leak(offsets_box),
                 };
-                print!("Row content: {row_content:?}\n");
+                // print!("Row content: {row_content:?}\n");
                 let row_id = row_num.clone();
                 row_num += 1;
                 Some((row_id, row_content))

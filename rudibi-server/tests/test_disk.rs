@@ -1,12 +1,11 @@
 
-mod util;
-
 use rudibi_server::engine::*;
 use rudibi_server::storage::{DiskStorage, RowContent, Storage};
+use rudibi_server::testlib;
 
 #[test]
 fn test_single_column() {
-    let mut storage = DiskStorage::new(TableSchema::new("Table", vec![ColumnSchema::new("id", DataType::U32)]), &util::random_temp_file());
+    let mut storage = DiskStorage::new(TableSchema::new("Table", vec![ColumnSchema::new("id", DataType::U32)]), &testlib::random_temp_file());
     let rows = vec![StoredRow::of_columns(&[&1u32.to_le_bytes()])];
     storage.store(rows, &vec![0]);
 
@@ -17,7 +16,7 @@ fn test_single_column() {
 
 #[test]
 fn test_multiple_columns() {
-    let mut storage = DiskStorage::new(util::fruits_schema(), &util::random_temp_file());
+    let mut storage = DiskStorage::new(testlib::fruits_schema(), &testlib::random_temp_file());
     let rows = vec![
         StoredRow::of_columns(&[&1u32.to_le_bytes(), &[1, 2, 3, 4]]),
         StoredRow::of_columns(&[&2u32.to_le_bytes(), &[5, 6, 7, 8]]),

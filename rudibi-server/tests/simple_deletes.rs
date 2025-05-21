@@ -1,6 +1,6 @@
 
-mod util;
 use rudibi_server::engine::*;
+use rudibi_server::testlib;
 
 #[test]
 fn test_delete_non_existent_table() {
@@ -18,7 +18,7 @@ fn test_delete_non_existent_table() {
 
 fn test_delete_empty(storage: StorageConfig) {
     // GIVEN
-    let mut db = util::empty_table(storage);
+    let mut db = testlib::empty_table(storage);
 
     // WHEN
     let deleted_count = db.delete(DeleteCommand::new("EmptyTable", vec![])).unwrap();
@@ -34,13 +34,13 @@ fn test_delete_empty_in_mem() {
 
 #[test]
 fn test_delete_empty_on_disk() {
-    test_delete_empty(StorageConfig::Disk { path: util::random_temp_file() });
+    test_delete_empty(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 
 fn test_delete_with_equality_filter(storage: StorageConfig) {
     // GIVEN
-    let mut db = util::fruits_table(storage);
+    let mut db = testlib::fruits_table(storage);
 
     // WHEN
     let deleted_count = db.delete(DeleteCommand::new("Fruits",
@@ -68,13 +68,13 @@ fn test_delete_with_equality_filter_in_mem() {
 
 #[test]
 fn test_delete_with_equality_filter_on_disk() {
-    test_delete_with_equality_filter(StorageConfig::Disk { path: util::random_temp_file() });
+    test_delete_with_equality_filter(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 
 fn test_delete_with_greater_than_filter(storage: StorageConfig) {
     // GIVEN
-    let mut db = util::fruits_table(storage);
+    let mut db = testlib::fruits_table(storage);
 
     // WHEN
     let deleted_count = db.delete(DeleteCommand::new("Fruits",
@@ -103,12 +103,12 @@ fn test_delete_with_greater_than_filter_in_mem() {
 
 #[test]
 fn test_delete_with_greater_than_filter_on_disk() {
-    test_delete_with_greater_than_filter(StorageConfig::Disk { path: util::random_temp_file() });
+    test_delete_with_greater_than_filter(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 fn test_delete_all_rows(storage: StorageConfig) {
     // GIVEN
-    let mut db = util::fruits_table(storage);
+    let mut db = testlib::fruits_table(storage);
 
     // WHEN
     let deleted_count = db.delete(DeleteCommand::new("Fruits", vec![])).unwrap();
@@ -126,12 +126,12 @@ fn test_delete_all_rows_in_mem() {
 
 #[test]
 fn test_delete_all_rows_on_disk() {
-    test_delete_all_rows(StorageConfig::Disk { path: util::random_temp_file() });
+    test_delete_all_rows(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
 
 fn test_delete_with_invalid_column(storage: StorageConfig) {
     // GIVEN
-    let mut db = util::fruits_table(storage);
+    let mut db = testlib::fruits_table(storage);
 
     // WHEN
     let result = db.delete(DeleteCommand::new("Fruits",
@@ -149,5 +149,5 @@ fn test_delete_with_invalid_column_in_mem() {
 
 #[test]
 fn test_delete_with_invalid_column_on_disk() {
-    test_delete_with_invalid_column(StorageConfig::Disk { path: util::random_temp_file() });
+    test_delete_with_invalid_column(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
