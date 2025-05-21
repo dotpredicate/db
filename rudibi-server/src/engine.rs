@@ -138,7 +138,7 @@ impl TableSchema {
         }
         
         // Validate the row size
-        let input_size = row.content.len();
+        let input_size = row.data.len();
         if input_size > self.max_row_size {
             return Err(DatabaseError::RowSizeExceeded { got: input_size, max: self.max_row_size });
         }
@@ -163,7 +163,7 @@ impl TableSchema {
 
 #[derive(Debug, Clone)]
 pub struct StoredRow {
-    pub content: Vec<u8>,        // Contiguous buffer holding all column data
+    pub data: Vec<u8>,        // Contiguous buffer holding all column data
     pub offsets: Vec<usize>,  // Start offsets for each column, plus end of last column
 }
 
@@ -180,17 +180,13 @@ impl StoredRow {
             data.extend_from_slice(col);
             offsets.push(data.len());
         }
-        StoredRow { content: data, offsets }
-    }
-
-    pub fn new(data: Vec<u8>, offsets: Vec<usize>) -> StoredRow {
-        StoredRow { content: data, offsets }
+        StoredRow { data, offsets }
     }
 
     pub fn get_column(&self, col_idx: usize) -> &[u8] {
         let start = self.offsets[col_idx];
         let end = self.offsets[col_idx + 1];
-        return &self.content[start..end];
+        return &self.data[start..end];
     }
 }
 

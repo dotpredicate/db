@@ -110,14 +110,12 @@ impl Storage for InMemoryStorage {
     }
 
     fn scan(&self) -> TableIterator {
-        TableIterator {
-            iter: Box::new(
-                (0..self.row_data_starts.len()).map(move |row_id| {
-                    let row_content = self.get_row_content(row_id);
-                    (row_id, row_content.unwrap())
-                })
-            )
-        }
+        TableIterator::new(Box::new(
+            (0..self.row_data_starts.len()).map(move |row_id| {
+                let row_content = self.get_row_content(row_id);
+                (row_id, row_content.unwrap())
+            })
+        ))
     }
 }
 
@@ -214,7 +212,7 @@ impl Storage for DiskStorage {
             
             // Row content length
             self.file
-                .write_all(&row.content.len().to_le_bytes())
+                .write_all(&row.data.len().to_le_bytes())
                 .expect("Failed to write content length");
 
             // Row content
@@ -243,45 +241,43 @@ impl Storage for DiskStorage {
         let num_offsets = usize::from_le_bytes(offsets_per_row_buf);
         // println!("Number of offsets per row: {num_offsets}");
 
-        TableIterator { 
-            iter: Box::new(std::iter::from_fn(move || {
-                // println!("\nReading row {row_num}...");
+        TableIterator::new(Box::new(std::iter::from_fn(move || {
+            // println!("\nReading row {row_num}...");
 
-                // Read row column offsets
-                let mut offsets_buf = vec![0u8; num_offsets * size_of::<usize>()];
-                if reader.read_exact(&mut offsets_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
-                    // println!("End of file - no more rows");
-                    return None;
-                }
-                let offsets: Vec<usize> = offsets_buf.chunks(size_of::<usize>())
-                    .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
-                    .collect();
-                // println!("Offsets: {:?}", offsets);
+            // Read row column offsets
+            let mut offsets_buf = vec![0u8; num_offsets * size_of::<usize>()];
+            if reader.read_exact(&mut offsets_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
+                // println!("End of file - no more rows");
+                return None;
+            }
+            let offsets: Vec<usize> = offsets_buf.chunks(size_of::<usize>())
+                .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
+                .collect();
+            // println!("Offsets: {:?}", offsets);
 
-                // Read content length
-                let mut len_buf = usize::to_le_bytes(0);
-                reader.read_exact(&mut len_buf).expect("Failed to read content length");
-                let content_len = usize::from_le_bytes(len_buf);
+            // Read content length
+            let mut len_buf = usize::to_le_bytes(0);
+            reader.read_exact(&mut len_buf).expect("Failed to read content length");
+            let content_len = usize::from_le_bytes(len_buf);
 
-                // Read content
-                let mut content = vec![0u8; content_len];
-                reader.read_exact(&mut content).expect("Failed to read content");
-                // println!("Content: {:?}", content);
+            // Read content
+            let mut content = vec![0u8; content_len];
+            reader.read_exact(&mut content).expect("Failed to read content");
+            // println!("Content: {:?}", content);
 
-                // Create scan item
-                // FIXME: Dark Rust magic
-                let content_box = content.into_boxed_slice();
-                let offsets_box = offsets.into_boxed_slice();
-                let row_content = RowContent {
-                    data: Box::leak(content_box),
-                    offsets: Box::leak(offsets_box),
-                };
-                // print!("Row content: {row_content:?}\n");
-                let row_id = row_num.clone();
-                row_num += 1;
-                Some((row_id, row_content))
-            }))
-        }
+            // Create scan item
+            // FIXME: Dark Rust magic
+            let content_box = content.into_boxed_slice();
+            let offsets_box = offsets.into_boxed_slice();
+            let row_content = RowContent {
+                data: Box::leak(content_box),
+                offsets: Box::leak(offsets_box),
+            };
+            // print!("Row content: {row_content:?}\n");
+            let row_id = row_num.clone();
+            row_num += 1;
+            Some((row_id, row_content))
+        })))
     }
 
     fn delete_rows(&mut self, _row_ids: Vec<RowId>) {
