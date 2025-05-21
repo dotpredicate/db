@@ -1,7 +1,6 @@
 
 use crate::engine::*;
 
-
 pub fn fruits_schema() -> TableSchema {
     TableSchema::new("Fruits",
         vec![
@@ -46,7 +45,6 @@ macro_rules! rows {
     };
 }
 
-
 pub fn fruits_table(storage: StorageConfig) -> Database {
     let mut db = Database::new();
     db.new_table(&fruits_schema(), storage).unwrap();
@@ -65,11 +63,11 @@ pub fn fruits_table(storage: StorageConfig) -> Database {
 
 pub fn empty_table(storage: StorageConfig) -> Database {
     let mut db = Database::new();
-    db.in_mem(&TableSchema::new("EmptyTable", vec![ColumnSchema::new("id", DataType::U32)])).unwrap();
+    db.new_table(&TableSchema::new("EmptyTable", vec![ColumnSchema::new("id", DataType::U32)]), storage).unwrap();
     return db;
 }
 
-use std::{env, slice};
+use std::env;
 use std::fs::File;
 use std::time::{SystemTime, UNIX_EPOCH};
 

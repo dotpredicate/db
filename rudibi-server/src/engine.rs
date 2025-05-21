@@ -256,10 +256,6 @@ impl Database {
         }
     }
 
-    pub fn in_mem(&mut self, new_table: &TableSchema) -> Result<(), DatabaseError> {
-        self.new_table(new_table, StorageConfig::InMemory)
-    }
-
     pub fn new_table(&mut self, new_table: &TableSchema, storage_cfg: StorageConfig) -> Result<(), DatabaseError> {
         let table_name = &new_table.name;
         if let Some(_) = self.schemas.get(table_name) {

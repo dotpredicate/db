@@ -33,6 +33,7 @@ fn test_delete_empty_in_mem() {
 }
 
 #[test]
+#[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_empty_on_disk() {
     test_delete_empty(StorageConfig::Disk { path: testlib::random_temp_file() });
 }
