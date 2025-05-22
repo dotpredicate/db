@@ -151,11 +151,11 @@ impl InMemoryStorage {
 }
 
 
-use std::io::{Write, BufWriter, Read, BufReader};
-use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::fs::{File, OpenOptions};
+use std::os::unix::fs::MetadataExt;
 pub struct DiskStorage {
-    file_path: String,
-    file: BufWriter<File>,
+    path: String,
 }
 
 type MagicType = [u8; 4];
@@ -164,31 +164,22 @@ const HEADER_MAGIC: &MagicType = b"RDBI";
 impl DiskStorage {
 
     pub fn new(schema: Table, path: &str) -> Self {
-        let file = File::create(path).expect("Failed to create file");
-        let mut writer = BufWriter::new(file);
+        let storage = DiskStorage {
+            path: path.to_string()
+        };
 
+        // TODO: Some persistence - File::create always truncates existing file
+        // Initial write - new file
+        let mut writer = storage.new_writer();
         writer.write_all(HEADER_MAGIC).expect("Failed to write magic number");
         writer.write_all(&(schema.columns.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
-
-        DiskStorage {
-            file_path: path.to_string(),
-            file: writer,
-        }
+        return storage;
     }
-}
-
-impl Drop for DiskStorage {
-    fn drop(&mut self) {
-        self.file.flush().expect("Failed to flush file");
-    }
-}
-
-
-impl DiskStorage {
 
     pub fn new_reader(&self) -> (BufReader<File>, usize) {
         // TODO: Use mmap instead
-        let mut reader = BufReader::new(File::open(&self.file_path).expect("Failed to open file"));
+        let file = OpenOptions::new().read(true).open(&self.path).expect("Failed to open file for writing");
+        let mut reader = BufReader::new(file);
         let mut magic_buf = MagicType::default();
         reader.read_exact(&mut magic_buf).expect("Failed to read magic number");
         assert_eq!(&magic_buf, HEADER_MAGIC);
@@ -200,7 +191,13 @@ impl DiskStorage {
         // println!("Number of offsets per row: {num_offsets}");
         return (reader, offsets_bytes);
     }
+
+    pub fn new_writer(&self) -> BufWriter<File> {
+        let file = OpenOptions::new().write(true).open(&self.path).expect("Failed to open file for writing");
+        BufWriter::new(file)
+    }
 }
+
 // TODO: Implement disk storage
 impl Storage for DiskStorage {
     
@@ -208,41 +205,38 @@ impl Storage for DiskStorage {
         // println!("DiskStorage::store - start - storing {} rows", rows.len());
         // TODO: Storage error handling
         // TODO: This is probably not optimal
+        let mut writer = self.new_writer();
+        writer.seek(std::io::SeekFrom::End(0)).expect("Failed to seek writer to end");
+        // println!("Position {}", writer.stream_position().unwrap());
         for row in rows {
             // println!("\nRow: {:?}", row);
             // println!("Column mapping: {:?}", column_mapping);
             
             // Write deleted=0
-            self.file.write(&[0]).expect("Failed to write deleted=0");
+            writer.write(&[0]).expect("Failed to write deleted=0");
             
             // Column offsets
             // FIXME: This is bad.
             let mut last_offset: usize = 0;
-            self.file.write(&last_offset.to_le_bytes()).expect("Failed to write initial column offset");
+            writer.write(&last_offset.to_le_bytes()).expect("Failed to write initial column offset");
             for next_col in column_mapping {
                 let sz = row.offsets[*next_col + 1] - row.offsets[*next_col];
                 // println!("Last offset: {last_offset}, size: {sz}");
                 last_offset += sz;
-                self.file
-                    .write(&last_offset.to_le_bytes())
-                    .expect("Failed to write offset");
+                writer.write(&last_offset.to_le_bytes()).expect("Failed to write offset");
             }
             
             // Row content length
-            self.file
-                .write_all(&row.data.len().to_le_bytes())
-                .expect("Failed to write content length");
+            writer.write_all(&row.data.len().to_le_bytes()).expect("Failed to write content length");
 
             // Row content
             for next_col in column_mapping {
                 let col = row.get_column(*next_col);
                 // println!("Column {next_col}: {:?}", col);
-                self.file
-                    .write_all(col)
-                    .expect("Failed to write column");
+                writer.write_all(col).expect("Failed to write column");
             }
         }
-        self.file.flush().expect("Failed to flush file");
+        writer.flush().expect("Failed to flush file");
         // println!("\nDiskStorage::store - finished\n");
     }
 
@@ -318,9 +312,34 @@ impl Storage for DiskStorage {
         let mut row_ids = row_ids;
         row_ids.sort();
 
-        // let iter = row_ids.iter();
+        let (mut reader, offsets_bytes) = self.new_reader();
+        let mut row_num: RowId = 0;
 
-        unimplemented!()
+        for next_deleted in row_ids {
+            'scan_loop: loop {
+                // Write deleted=1
+                if row_num == next_deleted {
+                    
+                }
+                let mut tombstone_buf = 0u8.to_ne_bytes();
+                reader.read_exact(&mut tombstone_buf).expect(format!("Failed to read {row_num}").as_str());
+                
+                // Check if row is marked as deleted
+                // Skip row column offsets
+                reader.seek_relative(offsets_bytes as i64).expect(format!("Failed to skip offsets in {row_num}").as_str());
+
+                // Skip row content
+                let mut len_buf = usize::to_le_bytes(0);
+                reader.read_exact(&mut len_buf).expect("Failed to read content length");
+                let content_len = usize::from_le_bytes(len_buf);
+                reader.seek_relative(content_len as i64).expect(format!("Failed to skip content in {row_num}").as_str());
+
+                // Try to read next row
+                row_num += 1;
+                continue 'scan_loop;
+            }
+        }
+        
     }
 }
 

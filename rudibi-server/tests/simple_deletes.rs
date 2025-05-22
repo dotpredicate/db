@@ -138,9 +138,7 @@ fn test_delete_with_invalid_column(storage: StorageCfg) {
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let result = db.delete("Fruits",
-        &[Filter::Equal { column: "invalid".into(), value: vec![] }],
-    );
+    let result = db.delete("Fruits", &[Filter::Equal { column: "invalid".into(), value: vec![] }]);
 
     // THEN
     assert!(matches!(result, Err(DbError::ColumnNotFound(ref s)) if s == "invalid"));
