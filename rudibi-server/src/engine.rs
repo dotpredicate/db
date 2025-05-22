@@ -89,7 +89,7 @@ impl Table {
 
     // Projecting columns in select clauses, filters, etc.
     // Seen as projecting input columns to schema
-    pub fn project_to_schema_optional(&self, columns: &Vec<String>) -> Result<Vec<usize>, DbError> {
+    pub fn project_to_schema_optional(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
         // FIXME: O(n^2) check
         let mut indices = Vec::with_capacity(columns.len());
         for col in columns {
@@ -102,7 +102,7 @@ impl Table {
     // Projecting columns in inserts where all columns are required
     // Seen as projecting schema to input columns
     // TODO: Allow partial inserts
-    pub fn project_from_schema_required(&self, columns: &Vec<String>) -> Result<Vec<usize>, DbError> {
+    pub fn project_from_schema_required(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
         if columns.len() != self.columns.len() {
             // FIXME: Better error here. Missing required column.
             return Err(DbError::InvalidColumnCount { expected: self.columns.len(), got: columns.len() });
@@ -188,49 +188,11 @@ impl Row {
     }
 }
 
-pub struct Insert {
-    table_name: String,
-    columns: Vec<String>, // FIXME: Allow partial inserts
-    what: Vec<Row>
-}
-
-impl Insert {
-    pub fn new(table_name: &str, columns: &[&str], what: Vec<Row>) -> Insert {
-        Insert { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), what }
-    }
-}
-
-
 #[derive(Debug)]
 pub enum Filter {
     Equal { column: String, value: Vec<u8> },
     GreaterThan { column: String, value: Vec<u8> },
     LessThan { column: String, value: Vec<u8> },
-}
-
-#[derive(Debug)]
-pub struct Select {
-    table_name: String,
-    columns: Vec<String>,
-    filters: Vec<Filter>
-}
-
-impl Select {
-    pub fn new(table_name: &str, columns: &[&str], filters: Vec<Filter>) -> Select {
-        Select { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), filters }
-    }
-}
-
-#[derive(Debug)]
-pub struct Delete {
-    table_name: String,
-    filters: Vec<Filter>
-}
-
-impl Delete {
-    pub fn new(table_name: &str, filters: Vec<Filter>) -> Delete {
-        Delete { table_name: table_name.to_string(), filters }
-    }
 }
 
 #[derive(Clone)]
@@ -277,41 +239,37 @@ impl Database {
         return Ok(())
     }
 
-    pub fn insert(&mut self, cmd: Insert) -> Result<usize, DbError> {
-        let schema = self.schema_for(&cmd.table_name)?.clone();
-        let storage = self.mut_storage_for(&cmd.table_name)?;
-        
-        let column_mapping = schema.project_from_schema_required(&cmd.columns)?;
+    pub fn insert(&mut self, table_name: &str, columns: &[&str], what: &[Row]) -> Result<usize, DbError> {
+        let schema = self.schema_for(&table_name)?;
+        let column_mapping = schema.project_from_schema_required(columns)?;
 
-        let mut inserts = Vec::new();
-        for row in cmd.what {
+        for row in what.iter().cloned() {
             schema.validate_input(&row, &column_mapping)?;
-            // Build the new StoredRow
-            inserts.push(row);
         }
-        let stored = inserts.len();
 
-        // Store the rows
-        storage.store(inserts, &column_mapping);
+        let storage = self.mut_storage_for(&table_name)?;
+        storage.store(&what, &column_mapping);
+        
+        // Maybe return it from storage?
+        let stored = what.len();
         Ok(stored)
     }
 
-    pub fn select(&self, cmd: Select) -> Result<Vec<Row>, DbError> {
-        let schema = self.schema_for(&cmd.table_name)?;
-        let storage = self.storage_for(&cmd.table_name)?;
+    pub fn select(&self, table_name: &str, columns: &[&str], filters: &[Filter]) -> Result<Vec<Row>, DbError> {
+        let schema = self.schema_for(table_name)?;
+        let storage = self.storage_for(table_name)?;
 
         // Validate and project columns
-        let column_mapping = schema.project_to_schema_optional(&cmd.columns)?;
+        let column_mapping = schema.project_to_schema_optional(columns)?;
 
         // TODO: Some mechanism of reporting / logging internal assertions
-        assert!(column_mapping.len() == cmd.columns.len(), "Column mapping should match the number of columns requested");
+        assert!(column_mapping.len() == columns.len(), "Column mapping should match the number of columns requested");
 
         // Validate filter columns
-        // FIXME: Cloning
-        let filter_columns: Vec<String> = cmd.filters.iter().map(|f| match f {
-            Filter::Equal { column, .. } => column.clone(),
-            Filter::GreaterThan { column, .. } => column.clone(),
-            Filter::LessThan { column, .. } => column.clone(),
+        let filter_columns: Vec<&str> = filters.iter().map(|f| match f {
+            Filter::Equal { column, .. } => column.as_str(),
+            Filter::GreaterThan { column, .. } => column.as_str(),
+            Filter::LessThan { column, .. } => column.as_str(),
         }).collect();
         // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
         schema.project_to_schema_optional(&filter_columns)?;
@@ -319,7 +277,7 @@ impl Database {
         // Filter and map rows
         let mut results = Vec::new();
         for (_, row) in storage.scan() {
-            if self.filter_row(&schema, &row, &cmd.filters)? {
+            if self.filter_row(&schema, &row, &filters)? {
                 let mut selected_row = Vec::new();
                 for proj_col in &column_mapping {
                     // FIXME: Cloning
@@ -332,28 +290,28 @@ impl Database {
         Ok(results)
     }
 
-    pub fn delete(&mut self, cmd: Delete) -> Result<usize, DbError> {
-        let schema = self.schema_for(&cmd.table_name)?;
+    pub fn delete(&mut self, table_name: &str, filters: &[Filter]) -> Result<usize, DbError> {
+        let schema = self.schema_for(table_name)?;
 
         // Validate filter columns
-        let filter_columns: Vec<String> = cmd.filters.iter().map(|f| match f {
-            Filter::Equal { column, .. } => column.clone(),
-            Filter::GreaterThan { column, .. } => column.clone(),
-            Filter::LessThan { column, .. } => column.clone(),
+        let filter_columns: Vec<&str> = filters.iter().map(|f| match f {
+            Filter::Equal { column, .. } => column.as_str(),
+            Filter::GreaterThan { column, .. } => column.as_str(),
+            Filter::LessThan { column, .. } => column.as_str(),
         }).collect();
         schema.project_to_schema_optional(&filter_columns)?;
 
         // Filter rows to remove
-        let to_remove: Vec<RowId> = self.storage_for(&cmd.table_name)?
+        let to_remove: Vec<RowId> = self.storage_for(table_name)?
             .scan()
-            .filter(|(_, row)| self.filter_row(&schema, &row, &cmd.filters).unwrap_or(false))
+            .filter(|(_, row)| self.filter_row(&schema, &row, &filters).unwrap_or(false))
             .map(|(row_id, _)| row_id)
             .collect();
 
         // Execute removal
         let removed = to_remove.len();
         // FIXME: Mutable borrow, again - borrow checker, storage.as_mut() doesn't work
-        self.mut_storage_for(&cmd.table_name)?.delete_rows(to_remove);
+        self.mut_storage_for(table_name)?.delete_rows(to_remove);
         Ok(removed)
     }
 

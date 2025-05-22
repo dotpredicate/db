@@ -43,7 +43,7 @@ impl<'a> Iterator for TableIterator<'a> {
 }
 
 pub trait Storage {
-    fn store(&mut self, rows: Vec<Row>, column_mapping: &Vec<usize>);
+    fn store(&mut self, rows: &[Row], column_mapping: &Vec<usize>);
     fn scan(&self) -> TableIterator;
     fn delete_rows(&mut self, row_ids: Vec<RowId>);
 }
@@ -51,7 +51,6 @@ pub trait Storage {
 
 pub struct InMemoryStorage {
     offsets_per_row: usize,
-    _schema: Table, // FIXME: Use schema to save data in a more structured way
     data: Vec<u8>,
     relative_column_offsets: Vec<usize>,
     row_data_starts: Vec<usize>,
@@ -59,7 +58,7 @@ pub struct InMemoryStorage {
 
 impl Storage for InMemoryStorage {
 
-    fn store(&mut self, rows: Vec<Row>, column_mapping: &Vec<usize>) {
+    fn store(&mut self, rows: &[Row], column_mapping: &Vec<usize>) {
         self.row_data_starts.reserve(rows.len());
         self.relative_column_offsets.reserve(rows.len() * self.offsets_per_row);
         for row in rows {
@@ -124,7 +123,6 @@ impl InMemoryStorage {
     pub fn new(schema: Table) -> Self {
         InMemoryStorage {
             offsets_per_row: schema.columns.len() + 1,
-            _schema: schema,
             data: Vec::new(),
             relative_column_offsets: Vec::new(),
             row_data_starts: Vec::new(),
@@ -155,7 +153,6 @@ impl InMemoryStorage {
 use std::io::{Write, BufWriter, Read, BufReader};
 use std::fs::File;
 pub struct DiskStorage {
-    schema: Table,
     file_path: String,
     file: BufWriter<File>,
 }
@@ -173,7 +170,6 @@ impl DiskStorage {
         writer.write_all(&(schema.columns.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
 
         DiskStorage {
-            schema,
             file_path: path.to_string(),
             file: writer,
         }
@@ -189,7 +185,7 @@ impl Drop for DiskStorage {
 // TODO: Implement disk storage
 impl Storage for DiskStorage {
     
-    fn store(&mut self, rows: Vec<Row>, column_mapping: &Vec<usize>) {
+    fn store(&mut self, rows: &[Row], column_mapping: &Vec<usize>) {
         // println!("DiskStorage::store - start - storing {} rows", rows.len());
         // TODO: Storage error handling
         // TODO: This is probably not optimal

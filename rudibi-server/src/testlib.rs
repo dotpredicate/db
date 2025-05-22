@@ -10,37 +10,11 @@ pub fn fruits_schema() -> Table {
     )
 }
 
-trait Store<'a> : Sized {
-    fn to_storable(&'a self) -> &'a [u8];
-}
-
-impl<'a> Store<'a> for u32 {
-    fn to_storable(&'a self) -> &'a [u8] {
-        unsafe {
-            // Rust dark "unsafe" magic just to be able to view u32 as a byte ptr 
-            // (u32::to_le_bytes makes a copy)
-            // FIXME: Will this fail on big endian systems?
-            std::slice::from_raw_parts(self as *const u32 as *const u8, std::mem::size_of::<u32>())
-        }
-    }
-}
-
-#[test]
-fn storable_u32_is_le_bytes() {
-    let val = 100u32;
-    assert_eq!(&val.to_le_bytes(), val.to_storable());
-}
-
-impl <'a> Store<'a> for &'a str {
-    fn to_storable(&'a self) -> &'a [u8] {
-        str::as_bytes(self)
-    }
-}
-
+#[macro_export]
 macro_rules! rows {
     ($([$($x:expr),+ $(,)?]),* $(,)?) => {
-        vec![
-            $(Row::of_columns(&[$($x.to_storable()),+])),*
+        &[
+            $( Row::of_columns(&[$( $crate::serial::Serializable::serialized(&$x) ),+]) ),*
         ]
     };
 }
@@ -56,7 +30,7 @@ pub fn fruits_table(storage: StorageCfg) -> Database {
         [400u32, "cherry"]
     ];
 
-    db.insert(Insert::new("Fruits", &["id", "name"], rows)).unwrap();
+    db.insert("Fruits", &["id", "name"], rows).unwrap();
 
     return db;
 }

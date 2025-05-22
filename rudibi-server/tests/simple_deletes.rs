@@ -1,6 +1,7 @@
 
 use rudibi_server::engine::*;
 use rudibi_server::testlib;
+use rudibi_server::serial::Serializable;
 
 #[test]
 fn test_delete_non_existent_table() {
@@ -8,8 +9,7 @@ fn test_delete_non_existent_table() {
     let mut db = Database::new();
     
     // WHEN
-    let delete_cmd = Delete::new("NonExistent", vec![]);
-    let result = db.delete(delete_cmd);
+    let result = db.delete("NonExistent", &[]);
 
     // THEN
     assert!(matches!(result, Err(DbError::TableNotFound(ref s)) if s == "NonExistent"));
@@ -21,7 +21,7 @@ fn test_delete_empty(storage: StorageCfg) {
     let mut db = testlib::empty_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(Delete::new("EmptyTable", vec![])).unwrap();
+    let deleted_count = db.delete("EmptyTable", &[]).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 0);
@@ -44,13 +44,13 @@ fn test_delete_with_equality_filter(storage: StorageCfg) {
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(Delete::new("Fruits",
-        vec![Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
-    )).unwrap();
+    let deleted_count = db.delete("Fruits",
+        &[Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
+    ).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 2);
-    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select("Fruits", &["id", "name"], &[]).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let names: Vec<String> = results.iter().map(|row| {
@@ -79,13 +79,13 @@ fn test_delete_with_greater_than_filter(storage: StorageCfg) {
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(Delete::new("Fruits",
-        vec![Filter::GreaterThan { column: "id".into(), value: 200u32.to_le_bytes().to_vec() }],
-    )).unwrap();
+    let deleted_count = db.delete("Fruits",
+        &[Filter::GreaterThan { column: "id".into(), value: 200u32.serialized().to_vec() }],
+    ).unwrap();
     
     // THEN
     assert_eq!(deleted_count, 2);
-    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select("Fruits", &["id", "name"], &[]).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let ids: Vec<u32> = results.iter().map(|row| {
@@ -114,11 +114,11 @@ fn test_delete_all_rows(storage: StorageCfg) {
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(Delete::new("Fruits", vec![])).unwrap();
+    let deleted_count = db.delete("Fruits", &[]).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 4);
-    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select("Fruits", &["id", "name"], &[]).unwrap();
     assert_eq!(results.len(), 0);
 }
 
@@ -138,9 +138,9 @@ fn test_delete_with_invalid_column(storage: StorageCfg) {
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let result = db.delete(Delete::new("Fruits",
-        vec![Filter::Equal { column: "invalid".into(), value: vec![] }],
-    ));
+    let result = db.delete("Fruits",
+        &[Filter::Equal { column: "invalid".into(), value: vec![] }],
+    );
 
     // THEN
     assert!(matches!(result, Err(DbError::ColumnNotFound(ref s)) if s == "invalid"));

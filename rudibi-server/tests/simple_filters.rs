@@ -1,6 +1,7 @@
 
 use rudibi_server::engine::*;
 use rudibi_server::testlib;
+use rudibi_server::serial::Serializable;
 
 #[test]
 fn test_equality() {
@@ -8,12 +9,9 @@ fn test_equality() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select(Select::new("Fruits", &["id", "name"],
-        vec![Filter::Equal {
-            column: "name".into(),
-            value: "banana".as_bytes().to_vec(),
-        }],
-    )).unwrap();
+    let results = db.select("Fruits", &["id", "name"],
+        &[Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
+    ).unwrap();
     
     // THEN
     assert_eq!(results.len(), 2);
@@ -41,12 +39,9 @@ fn test_gt() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select(Select::new("Fruits", &["id", "name"],
-        vec![Filter::GreaterThan {
-            column: "id".into(),
-            value: 200u32.to_le_bytes().to_vec(),
-        }],
-    )).unwrap();
+    let results = db.select("Fruits", &["id", "name"],
+        &[Filter::GreaterThan { column: "id".into(), value: 200u32.serialized().to_vec() }],
+    ).unwrap();
 
     // THEN
     let expected_names = vec!["banana", "cherry"];
@@ -73,12 +68,9 @@ fn test_gt_utf8_unsupported() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select(Select::new("Fruits", &["name"],
-        vec![Filter::GreaterThan {
-            column: "name".into(),
-            value: "banana".as_bytes().to_vec(),
-        }],
-    ));
+    let result = db.select("Fruits", &["name"],
+        &[Filter::GreaterThan { column: "name".into(), value: "banana".serialized().to_vec() }],
+    );
 
     // THEN
     // FIXME: { max_bytes: 20 } should not be printed
@@ -91,16 +83,13 @@ fn test_lt() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // Test 3: LessThan filter on U32
-    let results = db.select(Select::new("Fruits", &["id", "name"],
-        vec![Filter::LessThan {
-            column: "id".into(),
-            value: 200u32.to_le_bytes().to_vec(),
-        }]
-    )).unwrap();
+    let results = db.select("Fruits", &["id", "name"],
+        &[Filter::LessThan { column: "id".into(), value: 200u32.to_le_bytes().to_vec() }]
+    ).unwrap();
     assert_eq!(results.len(), 1);
     let row = &results[0];
-    assert_eq!(row.get_column(0), 100u32.to_le_bytes());
-    assert_eq!(row.get_column(1), "apple".as_bytes());
+    assert_eq!(row.get_column(0), 100u32.serialized());
+    assert_eq!(row.get_column(1), "apple".serialized());
 }
 
 
@@ -110,14 +99,14 @@ fn apply_projection() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select(Select::new("Fruits", &["name"],
-        vec![Filter::Equal { column: "id".into(), value: 100u32.to_le_bytes().to_vec() }],
-    )).unwrap();
+    let results = db.select("Fruits", &["name"],
+        &[Filter::Equal { column: "id".into(), value: 100u32.serialized().to_vec() }],
+    ).unwrap();
 
     // THEN
     assert_eq!(results.len(), 1);
     let row = &results[0];
-    assert_eq!(row.get_column(0), "apple".as_bytes());
+    assert_eq!(row.get_column(0), "apple".serialized());
 }
 
 #[test]
@@ -126,12 +115,12 @@ fn test_multiple_filters() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select(Select::new("Fruits", &["id", "name"],
-        vec![
-            Filter::GreaterThan { column: "id".into(), value: 100u32.to_le_bytes().to_vec() },
-            Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() },
+    let results = db.select("Fruits", &["id", "name"],
+        &[
+            Filter::GreaterThan { column: "id".into(), value: 100u32.serialized().to_vec() },
+            Filter::Equal { column: "name".into(), value: "banana".serialized().to_vec() },
         ],
-    )).unwrap();
+    ).unwrap();
 
     // THEN
     assert_eq!(results.len(), 2);
@@ -148,9 +137,9 @@ fn test_no_matching_rows() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select(Select::new("Fruits", &["id", "name"],
-        vec![Filter::Equal { column: "name".into(), value: "orange".as_bytes().to_vec() }],
-    )).unwrap();
+    let results = db.select("Fruits", &["id", "name"],
+        &[Filter::Equal { column: "name".into(), value: "orange".serialized().to_vec() }],
+    ).unwrap();
     
     // THEN
     assert_eq!(results.len(), 0);
@@ -162,7 +151,7 @@ fn test_no_filters() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select("Fruits", &["id", "name"], &[]).unwrap();
     
     // THEN
     assert_eq!(results.len(), 4);
@@ -174,7 +163,7 @@ fn test_invalid_column() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select(Select::new("Fruits", &["invalid_column"], vec![]));
+    let result = db.select("Fruits", &["invalid_column"], &[]);
 
     // THEN
     assert_eq!(result.unwrap_err(), DbError::ColumnNotFound("invalid_column".into()));
@@ -186,7 +175,7 @@ fn test_invalid_table() {
     let db = Database::new();
 
     // WHEN
-    let result = db.select(Select::new("NonExistent", &["id"], vec![]));
+    let result = db.select("NonExistent", &["id"], &[]);
 
     // THEN
     assert_eq!(result.unwrap_err(), DbError::TableNotFound("NonExistent".into()));
