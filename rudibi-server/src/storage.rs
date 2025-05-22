@@ -1,4 +1,4 @@
-use crate::engine::{StoredRow, TableSchema};
+use crate::engine::{Row, Table};
 
 // Not flexible and too small, but OK for now
 pub type RowId = usize;
@@ -43,7 +43,7 @@ impl<'a> Iterator for TableIterator<'a> {
 }
 
 pub trait Storage {
-    fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>);
+    fn store(&mut self, rows: Vec<Row>, column_mapping: &Vec<usize>);
     fn scan(&self) -> TableIterator;
     fn delete_rows(&mut self, row_ids: Vec<RowId>);
 }
@@ -51,7 +51,7 @@ pub trait Storage {
 
 pub struct InMemoryStorage {
     offsets_per_row: usize,
-    _schema: TableSchema, // FIXME: Use schema to save data in a more structured way
+    _schema: Table, // FIXME: Use schema to save data in a more structured way
     data: Vec<u8>,
     relative_column_offsets: Vec<usize>,
     row_data_starts: Vec<usize>,
@@ -59,7 +59,7 @@ pub struct InMemoryStorage {
 
 impl Storage for InMemoryStorage {
 
-    fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>) {
+    fn store(&mut self, rows: Vec<Row>, column_mapping: &Vec<usize>) {
         self.row_data_starts.reserve(rows.len());
         self.relative_column_offsets.reserve(rows.len() * self.offsets_per_row);
         for row in rows {
@@ -121,7 +121,7 @@ impl Storage for InMemoryStorage {
 
 impl InMemoryStorage {
 
-    pub fn new(schema: TableSchema) -> Self {
+    pub fn new(schema: Table) -> Self {
         InMemoryStorage {
             offsets_per_row: schema.columns.len() + 1,
             _schema: schema,
@@ -155,7 +155,7 @@ impl InMemoryStorage {
 use std::io::{Write, BufWriter, Read, BufReader};
 use std::fs::File;
 pub struct DiskStorage {
-    schema: TableSchema,
+    schema: Table,
     file_path: String,
     file: BufWriter<File>,
 }
@@ -165,7 +165,7 @@ const HEADER_MAGIC: &MagicType = b"RDBI";
 
 impl DiskStorage {
 
-    pub fn new(schema: TableSchema, path: &str) -> Self {
+    pub fn new(schema: Table, path: &str) -> Self {
         let file = File::create(path).expect("Failed to create file");
         let mut writer = BufWriter::new(file);
 
@@ -189,7 +189,7 @@ impl Drop for DiskStorage {
 // TODO: Implement disk storage
 impl Storage for DiskStorage {
     
-    fn store(&mut self, rows: Vec<StoredRow>, column_mapping: &Vec<usize>) {
+    fn store(&mut self, rows: Vec<Row>, column_mapping: &Vec<usize>) {
         // println!("DiskStorage::store - start - storing {} rows", rows.len());
         // TODO: Storage error handling
         // TODO: This is probably not optimal

@@ -5,8 +5,8 @@ use rudibi_server::testlib;
 
 #[test]
 fn test_single_column() {
-    let mut storage = DiskStorage::new(TableSchema::new("Table", vec![ColumnSchema::new("id", DataType::U32)]), &testlib::random_temp_file());
-    let rows = vec![StoredRow::of_columns(&[&1u32.to_le_bytes()])];
+    let mut storage = DiskStorage::new(Table::new("Table", vec![Column::new("id", DataType::U32)]), &testlib::random_temp_file());
+    let rows = vec![Row::of_columns(&[&1u32.to_le_bytes()])];
     storage.store(rows, &vec![0]);
 
     let read: Vec<RowContent> = storage.scan().map(|x| x.1).collect();
@@ -18,8 +18,8 @@ fn test_single_column() {
 fn test_multiple_columns() {
     let mut storage = DiskStorage::new(testlib::fruits_schema(), &testlib::random_temp_file());
     let rows = vec![
-        StoredRow::of_columns(&[&1u32.to_le_bytes(), &[1, 2, 3, 4]]),
-        StoredRow::of_columns(&[&2u32.to_le_bytes(), &[5, 6, 7, 8]]),
+        Row::of_columns(&[&1u32.to_le_bytes(), &[1, 2, 3, 4]]),
+        Row::of_columns(&[&2u32.to_le_bytes(), &[5, 6, 7, 8]]),
     ];
     storage.store(rows, &vec![0, 1]);
 

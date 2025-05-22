@@ -35,7 +35,7 @@ impl DataType {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum DatabaseError {
+pub enum DbError {
     TableNotFound(String),
     TableAlreadyExists(String),
     EmptyTableSchema,
@@ -49,18 +49,16 @@ pub enum DatabaseError {
 }
 
 #[derive(Debug, Clone)]
-pub struct ColumnSchema {
+pub struct Column {
     name: String,
     dtype: DataType,
 }
 
-impl ColumnSchema {
-    pub fn new(name: &str, dtype: DataType) -> ColumnSchema {
-        ColumnSchema { name: name.to_string(), dtype }
+impl Column {
+    pub fn new(name: &str, dtype: DataType) -> Column {
+        Column { name: name.to_string(), dtype }
     }
 }
-
-
 
 #[derive(Debug, PartialEq)]
 pub enum ColumnValue {
@@ -71,17 +69,17 @@ pub enum ColumnValue {
 }
 
 #[derive(Debug, Clone)]
-pub struct TableSchema {
+pub struct Table {
     pub name: String,
-    pub columns: Vec<ColumnSchema>,
+    pub columns: Vec<Column>,
     pub min_row_size: usize,
     pub max_row_size: usize,
 }
 
-impl TableSchema {
+impl Table {
 
-    pub fn new(name: &str, schema: Vec<ColumnSchema>) -> TableSchema {
-        TableSchema {
+    pub fn new(name: &str, schema: Vec<Column>) -> Table {
+        Table {
             name: name.to_string(),
             min_row_size: schema.iter().map(|c| c.dtype.min_size()).sum(),
             max_row_size: schema.iter().map(|c| c.dtype.max_size()).sum(),
@@ -91,7 +89,7 @@ impl TableSchema {
 
     // Projecting columns in select clauses, filters, etc.
     // Seen as projecting input columns to schema
-    pub fn project_to_schema_optional(&self, columns: &Vec<String>) -> Result<Vec<usize>, DatabaseError> {
+    pub fn project_to_schema_optional(&self, columns: &Vec<String>) -> Result<Vec<usize>, DbError> {
         // FIXME: O(n^2) check
         let mut indices = Vec::with_capacity(columns.len());
         for col in columns {
@@ -104,29 +102,29 @@ impl TableSchema {
     // Projecting columns in inserts where all columns are required
     // Seen as projecting schema to input columns
     // TODO: Allow partial inserts
-    pub fn project_from_schema_required(&self, columns: &Vec<String>) -> Result<Vec<usize>, DatabaseError> {
+    pub fn project_from_schema_required(&self, columns: &Vec<String>) -> Result<Vec<usize>, DbError> {
         if columns.len() != self.columns.len() {
             // FIXME: Better error here. Missing required column.
-            return Err(DatabaseError::InvalidColumnCount { expected: self.columns.len(), got: columns.len() });
+            return Err(DbError::InvalidColumnCount { expected: self.columns.len(), got: columns.len() });
         }
         // FIXME: O(n^2) check
         let mut indices = Vec::with_capacity(self.columns.len());
         for col in &self.columns {
             // FIXME: Better error here. Missing required column.
             let source_idx = columns.iter().position(|c| c == &col.name)
-                .ok_or_else(|| DatabaseError::ColumnNotFound(col.name.clone()))?;
+                .ok_or_else(|| DbError::ColumnNotFound(col.name.clone()))?;
             indices.push(source_idx);
         }
         Ok(indices)
     }
 
-    fn require_column(&self, name: &str) -> Result<(usize, &ColumnSchema), DatabaseError> {
+    fn require_column(&self, name: &str) -> Result<(usize, &Column), DbError> {
         self.columns.iter().enumerate()
             .find(|(_, col)| col.name == *name)
-            .ok_or_else(|| DatabaseError::ColumnNotFound(name.to_string()))
+            .ok_or_else(|| DbError::ColumnNotFound(name.to_string()))
     }
 
-    fn validate_input(&self, row: &StoredRow, column_mapping: &Vec<usize>) -> Result<(), DatabaseError> {
+    fn validate_input(&self, row: &Row, column_mapping: &Vec<usize>) -> Result<(), DbError> {
         // Validate the number of columns
         let input_offsets = row.offsets.len();
         let input_columns = input_offsets - 1;
@@ -134,16 +132,16 @@ impl TableSchema {
         // Probably not needed here
         // TODO: allow partial inserts for optional columns
         if input_columns != column_mapping.len(){
-            return Err(DatabaseError::InvalidColumnCount { expected: self.columns.len(), got: input_columns }) ;
+            return Err(DbError::InvalidColumnCount { expected: self.columns.len(), got: input_columns }) ;
         }
         
         // Validate the row size
         let input_size = row.data.len();
         if input_size > self.max_row_size {
-            return Err(DatabaseError::RowSizeExceeded { got: input_size, max: self.max_row_size });
+            return Err(DbError::RowSizeExceeded { got: input_size, max: self.max_row_size });
         }
         if input_size < self.min_row_size {
-            return Err(DatabaseError::RowSizeTooSmall { got: input_size, min: self.min_row_size });
+            return Err(DbError::RowSizeTooSmall { got: input_size, min: self.min_row_size });
         }
 
         // Validate each column in schema for size in input
@@ -154,7 +152,7 @@ impl TableSchema {
             let col_min = col.dtype.min_size();
             let col_max = col.dtype.max_size();
             if input_col_size < col_min || input_col_size > col_max {
-                return Err(DatabaseError::ColumnSizeOutOfBounds { column: col.name.clone(), got: input_col_size, min: col_min, max: col_max });
+                return Err(DbError::ColumnSizeOutOfBounds { column: col.name.clone(), got: input_col_size, min: col_min, max: col_max });
             }
         }
         Ok(())
@@ -162,14 +160,14 @@ impl TableSchema {
 }
 
 #[derive(Debug, Clone)]
-pub struct StoredRow {
+pub struct Row {
     pub data: Vec<u8>,        // Contiguous buffer holding all column data
     pub offsets: Vec<usize>,  // Start offsets for each column, plus end of last column
 }
 
-impl StoredRow {
+impl Row {
     
-    pub fn of_columns(columns: &[&[u8]]) -> StoredRow {
+    pub fn of_columns(columns: &[&[u8]]) -> Row {
         let mut data = Vec::new();
         let mut offsets = Vec::new();
         // Preallocating is slower??
@@ -180,7 +178,7 @@ impl StoredRow {
             data.extend_from_slice(col);
             offsets.push(data.len());
         }
-        StoredRow { data, offsets }
+        Row { data, offsets }
     }
 
     pub fn get_column(&self, col_idx: usize) -> &[u8] {
@@ -190,15 +188,15 @@ impl StoredRow {
     }
 }
 
-pub struct StoreCommand {
+pub struct Insert {
     table_name: String,
     columns: Vec<String>, // FIXME: Allow partial inserts
-    what: Vec<StoredRow>
+    what: Vec<Row>
 }
 
-impl StoreCommand {
-    pub fn new(table_name: &str, columns: &[&str], what: Vec<StoredRow>) -> StoreCommand {
-        StoreCommand { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), what }
+impl Insert {
+    pub fn new(table_name: &str, columns: &[&str], what: Vec<Row>) -> Insert {
+        Insert { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), what }
     }
 }
 
@@ -211,40 +209,38 @@ pub enum Filter {
 }
 
 #[derive(Debug)]
-pub struct GetCommand {
+pub struct Select {
     table_name: String,
     columns: Vec<String>,
     filters: Vec<Filter>
 }
 
-impl GetCommand {
-    pub fn new(table_name: &str, columns: &[&str], filters: Vec<Filter>) -> GetCommand {
-        GetCommand { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), filters }
+impl Select {
+    pub fn new(table_name: &str, columns: &[&str], filters: Vec<Filter>) -> Select {
+        Select { table_name: table_name.to_string(), columns: columns.iter().map(|s| s.to_string()).collect(), filters }
     }
 }
 
 #[derive(Debug)]
-pub struct DeleteCommand {
+pub struct Delete {
     table_name: String,
     filters: Vec<Filter>
 }
 
-impl DeleteCommand {
-    pub fn new(table_name: &str, filters: Vec<Filter>) -> DeleteCommand {
-        DeleteCommand { table_name: table_name.to_string(), filters }
+impl Delete {
+    pub fn new(table_name: &str, filters: Vec<Filter>) -> Delete {
+        Delete { table_name: table_name.to_string(), filters }
     }
 }
 
 #[derive(Clone)]
-pub enum StorageConfig {
+pub enum StorageCfg {
     InMemory,
     Disk { path: String },
 }
 
-
-
 pub struct Database {
-    schemas: HashMap<String, TableSchema>,
+    schemas: HashMap<String, Table>,
     storage: HashMap<String, Box<dyn Storage>>
 }
 
@@ -256,32 +252,32 @@ impl Database {
         }
     }
 
-    pub fn new_table(&mut self, new_table: &TableSchema, storage_cfg: StorageConfig) -> Result<(), DatabaseError> {
+    pub fn new_table(&mut self, new_table: &Table, storage_cfg: StorageCfg) -> Result<(), DbError> {
         let table_name = &new_table.name;
         if let Some(_) = self.schemas.get(table_name) {
-            return Err(DatabaseError::TableAlreadyExists(table_name.clone()));
+            return Err(DbError::TableAlreadyExists(table_name.clone()));
         }
 
         if new_table.columns.is_empty() {
-            return Err(DatabaseError::EmptyTableSchema);
+            return Err(DbError::EmptyTableSchema);
         }
 
         self.schemas.insert(table_name.to_owned(), new_table.clone());
 
         let storage: Box<dyn Storage> = match storage_cfg {
-            StorageConfig::InMemory => Box::new(InMemoryStorage::new(new_table.clone())),
-            StorageConfig::Disk { path } => Box::new(DiskStorage::new(new_table.clone(), &path)),
+            StorageCfg::InMemory => Box::new(InMemoryStorage::new(new_table.clone())),
+            StorageCfg::Disk { path } => Box::new(DiskStorage::new(new_table.clone(), &path)),
         };
 
         let old_storage = self.storage.insert(table_name.to_owned(), storage);
         if old_storage.is_some() {
             // TODO: What to do in this case?
-            return Err(DatabaseError::TableAlreadyExists(table_name.clone()));
+            return Err(DbError::TableAlreadyExists(table_name.clone()));
         }
         return Ok(())
     }
 
-    pub fn store(&mut self, cmd: StoreCommand) -> Result<usize, DatabaseError> {
+    pub fn insert(&mut self, cmd: Insert) -> Result<usize, DbError> {
         let schema = self.schema_for(&cmd.table_name)?.clone();
         let storage = self.mut_storage_for(&cmd.table_name)?;
         
@@ -300,7 +296,7 @@ impl Database {
         Ok(stored)
     }
 
-    pub fn get(&self, cmd: GetCommand) -> Result<Vec<StoredRow>, DatabaseError> {
+    pub fn select(&self, cmd: Select) -> Result<Vec<Row>, DbError> {
         let schema = self.schema_for(&cmd.table_name)?;
         let storage = self.storage_for(&cmd.table_name)?;
 
@@ -329,14 +325,14 @@ impl Database {
                     // FIXME: Cloning
                     selected_row.push(row.get_column(proj_col.clone()));
                 }
-                let projected = StoredRow::of_columns(&selected_row);
+                let projected = Row::of_columns(&selected_row);
                 results.push(projected);
             }
         }
         Ok(results)
     }
 
-    pub fn delete(&mut self, cmd: DeleteCommand) -> Result<usize, DatabaseError> {
+    pub fn delete(&mut self, cmd: Delete) -> Result<usize, DbError> {
         let schema = self.schema_for(&cmd.table_name)?;
 
         // Validate filter columns
@@ -361,36 +357,36 @@ impl Database {
         Ok(removed)
     }
 
-    pub fn schema_for(&self, table_name: &str) -> Result<&TableSchema, DatabaseError> {
+    pub fn schema_for(&self, table_name: &str) -> Result<&Table, DbError> {
         self.schemas
             .get(table_name)
-            .ok_or_else(|| DatabaseError::TableNotFound(table_name.to_string()))
+            .ok_or_else(|| DbError::TableNotFound(table_name.to_string()))
     }
 
-    fn storage_for(&self, table_name: &str) -> Result<&Box<dyn Storage>, DatabaseError> {
+    fn storage_for(&self, table_name: &str) -> Result<&Box<dyn Storage>, DbError> {
         self.storage
             .get(table_name)
-            .ok_or_else(|| DatabaseError::TableNotFound(table_name.to_string()))
+            .ok_or_else(|| DbError::TableNotFound(table_name.to_string()))
     }
 
-    fn mut_storage_for(&mut self, table_name: &str) -> Result<&mut Box<dyn Storage>, DatabaseError> {
+    fn mut_storage_for(&mut self, table_name: &str) -> Result<&mut Box<dyn Storage>, DbError> {
         self.storage
             .get_mut(table_name)
-            .ok_or_else(|| DatabaseError::TableNotFound(table_name.to_string()))
+            .ok_or_else(|| DbError::TableNotFound(table_name.to_string()))
     }
 
     // TODO: This probably should go somewhere else
-    pub fn canonical_column(&self, schema: &ColumnSchema, data: &[u8]) -> Result<ColumnValue, DatabaseError> {
+    pub fn canonical_column(&self, schema: &Column, data: &[u8]) -> Result<ColumnValue, DbError> {
         match schema.dtype {
-            DataType::U32 => { Ok(ColumnValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| DatabaseError::ConversionError)?))) }
-            DataType::F64 => { Ok(ColumnValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| DatabaseError::ConversionError)?))) }
+            DataType::U32 => { Ok(ColumnValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| DbError::ConversionError)?))) }
+            DataType::F64 => { Ok(ColumnValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| DbError::ConversionError)?))) }
             DataType::UTF8 { .. } => Ok(ColumnValue::String(
-                String::from_utf8(data.to_vec()).map_err(|_| DatabaseError::ConversionError)?,
+                String::from_utf8(data.to_vec()).map_err(|_| DbError::ConversionError)?,
             )),
             DataType::VARBINARY { .. } => Ok(ColumnValue::Bytes(data.to_vec())),
             DataType::BUFFER { length } => {
                 if data.len() != length {
-                    return Err(DatabaseError::ConversionError);
+                    return Err(DbError::ConversionError);
                 }
                 Ok(ColumnValue::Bytes(data.to_vec()))
             }
@@ -398,13 +394,13 @@ impl Database {
     }
 
     // TODO: This probably should go somewhere else. Like a client-side util?
-    pub fn get_column_value(&self, schema: &TableSchema, row: &StoredRow, col_idx: usize) -> Result<ColumnValue, DatabaseError> {
+    pub fn get_column_value(&self, schema: &Table, row: &Row, col_idx: usize) -> Result<ColumnValue, DbError> {
         let col_scheme = &schema.columns[col_idx];
         self.canonical_column(col_scheme, row.get_column(col_idx))
     }
 
     // TODO: This probably should go somewhere else
-    fn filter_row(&self, schema: &TableSchema, row: &RowContent, filters: &[Filter]) -> Result<bool, DatabaseError> {
+    fn filter_row(&self, schema: &Table, row: &RowContent, filters: &[Filter]) -> Result<bool, DbError> {
         for filter in filters {
             let (column, value) = match filter {
                 Filter::Equal { column, value } => (column, value),
@@ -420,14 +416,14 @@ impl Database {
                 Filter::GreaterThan { .. } => match (col_value, filter_val) {
                     (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val > filter_val,
                     (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val > filter_val,
-                    _ => return Err(DatabaseError::UnsupportedOperation(format!(
+                    _ => return Err(DbError::UnsupportedOperation(format!(
                         "GreaterThan filter not supported for data type {:?}", col_scheme.dtype
                     ))),
                 },
                 Filter::LessThan { .. } => match (col_value, filter_val) {
                     (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val < filter_val,
                     (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val < filter_val,
-                    _ => return Err(DatabaseError::UnsupportedOperation(format!(
+                    _ => return Err(DbError::UnsupportedOperation(format!(
                         "LessThan filter not supported for data type {:?}", col_scheme.dtype
                     ))),
                 },

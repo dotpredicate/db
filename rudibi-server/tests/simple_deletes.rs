@@ -8,20 +8,20 @@ fn test_delete_non_existent_table() {
     let mut db = Database::new();
     
     // WHEN
-    let delete_cmd = DeleteCommand::new("NonExistent", vec![]);
+    let delete_cmd = Delete::new("NonExistent", vec![]);
     let result = db.delete(delete_cmd);
 
     // THEN
-    assert!(matches!(result, Err(DatabaseError::TableNotFound(ref s)) if s == "NonExistent"));
+    assert!(matches!(result, Err(DbError::TableNotFound(ref s)) if s == "NonExistent"));
 }
 
 
-fn test_delete_empty(storage: StorageConfig) {
+fn test_delete_empty(storage: StorageCfg) {
     // GIVEN
     let mut db = testlib::empty_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(DeleteCommand::new("EmptyTable", vec![])).unwrap();
+    let deleted_count = db.delete(Delete::new("EmptyTable", vec![])).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 0);
@@ -29,28 +29,28 @@ fn test_delete_empty(storage: StorageConfig) {
 
 #[test]
 fn test_delete_empty_in_mem() {
-    test_delete_empty(StorageConfig::InMemory);
+    test_delete_empty(StorageCfg::InMemory);
 }
 
 #[test]
 #[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_empty_on_disk() {
-    test_delete_empty(StorageConfig::Disk { path: testlib::random_temp_file() });
+    test_delete_empty(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
 
 
-fn test_delete_with_equality_filter(storage: StorageConfig) {
+fn test_delete_with_equality_filter(storage: StorageCfg) {
     // GIVEN
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(DeleteCommand::new("Fruits",
+    let deleted_count = db.delete(Delete::new("Fruits",
         vec![Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
     )).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 2);
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let names: Vec<String> = results.iter().map(|row| {
@@ -64,28 +64,28 @@ fn test_delete_with_equality_filter(storage: StorageConfig) {
 
 #[test]
 fn test_delete_with_equality_filter_in_mem() {
-    test_delete_with_equality_filter(StorageConfig::InMemory);
+    test_delete_with_equality_filter(StorageCfg::InMemory);
 }
 
 #[test]
 #[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_with_equality_filter_on_disk() {
-    test_delete_with_equality_filter(StorageConfig::Disk { path: testlib::random_temp_file() });
+    test_delete_with_equality_filter(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
 
 
-fn test_delete_with_greater_than_filter(storage: StorageConfig) {
+fn test_delete_with_greater_than_filter(storage: StorageCfg) {
     // GIVEN
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(DeleteCommand::new("Fruits",
+    let deleted_count = db.delete(Delete::new("Fruits",
         vec![Filter::GreaterThan { column: "id".into(), value: 200u32.to_le_bytes().to_vec() }],
     )).unwrap();
     
     // THEN
     assert_eq!(deleted_count, 2);
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let ids: Vec<u32> = results.iter().map(|row| {
@@ -100,58 +100,58 @@ fn test_delete_with_greater_than_filter(storage: StorageConfig) {
 
 #[test]
 fn test_delete_with_greater_than_filter_in_mem() {
-    test_delete_with_greater_than_filter(StorageConfig::InMemory);
+    test_delete_with_greater_than_filter(StorageCfg::InMemory);
 }
 
 #[test]
 #[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_with_greater_than_filter_on_disk() {
-    test_delete_with_greater_than_filter(StorageConfig::Disk { path: testlib::random_temp_file() });
+    test_delete_with_greater_than_filter(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
 
-fn test_delete_all_rows(storage: StorageConfig) {
+fn test_delete_all_rows(storage: StorageCfg) {
     // GIVEN
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let deleted_count = db.delete(DeleteCommand::new("Fruits", vec![])).unwrap();
+    let deleted_count = db.delete(Delete::new("Fruits", vec![])).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 4);
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
     assert_eq!(results.len(), 0);
 }
 
 #[test]
 fn test_delete_all_rows_in_mem() {
-    test_delete_all_rows(StorageConfig::InMemory);
+    test_delete_all_rows(StorageCfg::InMemory);
 }
 
 #[test]
 #[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_all_rows_on_disk() {
-    test_delete_all_rows(StorageConfig::Disk { path: testlib::random_temp_file() });
+    test_delete_all_rows(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
 
-fn test_delete_with_invalid_column(storage: StorageConfig) {
+fn test_delete_with_invalid_column(storage: StorageCfg) {
     // GIVEN
     let mut db = testlib::fruits_table(storage);
 
     // WHEN
-    let result = db.delete(DeleteCommand::new("Fruits",
+    let result = db.delete(Delete::new("Fruits",
         vec![Filter::Equal { column: "invalid".into(), value: vec![] }],
     ));
 
     // THEN
-    assert!(matches!(result, Err(DatabaseError::ColumnNotFound(ref s)) if s == "invalid"));
+    assert!(matches!(result, Err(DbError::ColumnNotFound(ref s)) if s == "invalid"));
 }
 
 #[test]
 fn test_delete_with_invalid_column_in_mem() {
-    test_delete_with_invalid_column(StorageConfig::InMemory);
+    test_delete_with_invalid_column(StorageCfg::InMemory);
 }
 
 #[test]
 fn test_delete_with_invalid_column_on_disk() {
-    test_delete_with_invalid_column(StorageConfig::Disk { path: testlib::random_temp_file() });
+    test_delete_with_invalid_column(StorageCfg::Disk { path: testlib::random_temp_file() });
 }

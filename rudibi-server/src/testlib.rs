@@ -1,11 +1,11 @@
 
 use crate::engine::*;
 
-pub fn fruits_schema() -> TableSchema {
-    TableSchema::new("Fruits",
+pub fn fruits_schema() -> Table {
+    Table::new("Fruits",
         vec![
-            ColumnSchema::new("id", DataType::U32),
-            ColumnSchema::new("name", DataType::UTF8 { max_bytes: 20 }),
+            Column::new("id", DataType::U32),
+            Column::new("name", DataType::UTF8 { max_bytes: 20 }),
         ]
     )
 }
@@ -40,12 +40,12 @@ impl <'a> Store<'a> for &'a str {
 macro_rules! rows {
     ($([$($x:expr),+ $(,)?]),* $(,)?) => {
         vec![
-            $(StoredRow::of_columns(&[$($x.to_storable()),+])),*
+            $(Row::of_columns(&[$($x.to_storable()),+])),*
         ]
     };
 }
 
-pub fn fruits_table(storage: StorageConfig) -> Database {
+pub fn fruits_table(storage: StorageCfg) -> Database {
     let mut db = Database::new();
     db.new_table(&fruits_schema(), storage).unwrap();
 
@@ -56,14 +56,14 @@ pub fn fruits_table(storage: StorageConfig) -> Database {
         [400u32, "cherry"]
     ];
 
-    db.store(StoreCommand::new("Fruits", &["id", "name"], rows)).unwrap();
+    db.insert(Insert::new("Fruits", &["id", "name"], rows)).unwrap();
 
     return db;
 }
 
-pub fn empty_table(storage: StorageConfig) -> Database {
+pub fn empty_table(storage: StorageCfg) -> Database {
     let mut db = Database::new();
-    db.new_table(&TableSchema::new("EmptyTable", vec![ColumnSchema::new("id", DataType::U32)]), storage).unwrap();
+    db.new_table(&Table::new("EmptyTable", vec![Column::new("id", DataType::U32)]), storage).unwrap();
     return db;
 }
 

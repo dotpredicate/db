@@ -5,10 +5,10 @@ use rudibi_server::testlib;
 #[test]
 fn test_equality() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"],
+    let results = db.select(Select::new("Fruits", &["id", "name"],
         vec![Filter::Equal {
             column: "name".into(),
             value: "banana".as_bytes().to_vec(),
@@ -38,10 +38,10 @@ fn test_equality() {
 #[test]
 fn test_gt() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"],
+    let results = db.select(Select::new("Fruits", &["id", "name"],
         vec![Filter::GreaterThan {
             column: "id".into(),
             value: 200u32.to_le_bytes().to_vec(),
@@ -70,10 +70,10 @@ fn test_gt() {
 #[test]
 fn test_gt_utf8_unsupported() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.get(GetCommand::new("Fruits", &["name"],
+    let result = db.select(Select::new("Fruits", &["name"],
         vec![Filter::GreaterThan {
             column: "name".into(),
             value: "banana".as_bytes().to_vec(),
@@ -88,10 +88,10 @@ fn test_gt_utf8_unsupported() {
 #[test]
 fn test_lt() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // Test 3: LessThan filter on U32
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"],
+    let results = db.select(Select::new("Fruits", &["id", "name"],
         vec![Filter::LessThan {
             column: "id".into(),
             value: 200u32.to_le_bytes().to_vec(),
@@ -107,10 +107,10 @@ fn test_lt() {
 #[test]
 fn apply_projection() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.get(GetCommand::new("Fruits", &["name"],
+    let results = db.select(Select::new("Fruits", &["name"],
         vec![Filter::Equal { column: "id".into(), value: 100u32.to_le_bytes().to_vec() }],
     )).unwrap();
 
@@ -123,10 +123,10 @@ fn apply_projection() {
 #[test]
 fn test_multiple_filters() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"],
+    let results = db.select(Select::new("Fruits", &["id", "name"],
         vec![
             Filter::GreaterThan { column: "id".into(), value: 100u32.to_le_bytes().to_vec() },
             Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() },
@@ -145,10 +145,10 @@ fn test_multiple_filters() {
 #[test]
 fn test_no_matching_rows() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"],
+    let results = db.select(Select::new("Fruits", &["id", "name"],
         vec![Filter::Equal { column: "name".into(), value: "orange".as_bytes().to_vec() }],
     )).unwrap();
     
@@ -159,10 +159,10 @@ fn test_no_matching_rows() {
 #[test]
 fn test_no_filters() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.get(GetCommand::new("Fruits", &["id", "name"], vec![])).unwrap();
+    let results = db.select(Select::new("Fruits", &["id", "name"], vec![])).unwrap();
     
     // THEN
     assert_eq!(results.len(), 4);
@@ -171,13 +171,13 @@ fn test_no_filters() {
 #[test]
 fn test_invalid_column() {
     // GIVEN
-    let db = testlib::fruits_table(StorageConfig::InMemory);
+    let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.get(GetCommand::new("Fruits", &["invalid_column"], vec![]));
+    let result = db.select(Select::new("Fruits", &["invalid_column"], vec![]));
 
     // THEN
-    assert_eq!(result.unwrap_err(), DatabaseError::ColumnNotFound("invalid_column".into()));
+    assert_eq!(result.unwrap_err(), DbError::ColumnNotFound("invalid_column".into()));
 }
 
 #[test]
@@ -186,8 +186,8 @@ fn test_invalid_table() {
     let db = Database::new();
 
     // WHEN
-    let result = db.get(GetCommand::new("NonExistent", &["id"], vec![]));
+    let result = db.select(Select::new("NonExistent", &["id"], vec![]));
 
     // THEN
-    assert_eq!(result.unwrap_err(), DatabaseError::TableNotFound("NonExistent".into()));
+    assert_eq!(result.unwrap_err(), DbError::TableNotFound("NonExistent".into()));
 }
