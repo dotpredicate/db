@@ -2,7 +2,6 @@ use crate::engine::{Row, Table};
 
 // Not flexible and too small, but OK for now
 pub type RowId = usize;
-type ScanItem<'a> = (RowId, RowContent<'a>);
 
 
 #[derive(Debug)]
@@ -19,6 +18,8 @@ impl RowContent<'_> {
         return &self.data[start..end];
     }
 }
+
+type ScanItem<'a> = (RowId, RowContent<'a>);
 
 // Rust requires a concrete implementation in return types for traits or something.
 // This is a workaround.
@@ -182,6 +183,24 @@ impl Drop for DiskStorage {
     }
 }
 
+
+impl DiskStorage {
+
+    pub fn new_reader(&self) -> (BufReader<File>, usize) {
+        // TODO: Use mmap instead
+        let mut reader = BufReader::new(File::open(&self.file_path).expect("Failed to open file"));
+        let mut magic_buf = MagicType::default();
+        reader.read_exact(&mut magic_buf).expect("Failed to read magic number");
+        assert_eq!(&magic_buf, HEADER_MAGIC);
+        let mut offsets_per_row_buf = usize::to_le_bytes(0);
+        reader.read_exact(&mut offsets_per_row_buf).expect("Failed to read offsets per row");
+
+        let num_offsets = usize::from_le_bytes(offsets_per_row_buf);
+        let offsets_bytes = num_offsets * size_of::<usize>();
+        // println!("Number of offsets per row: {num_offsets}");
+        return (reader, offsets_bytes);
+    }
+}
 // TODO: Implement disk storage
 impl Storage for DiskStorage {
     
@@ -192,6 +211,9 @@ impl Storage for DiskStorage {
         for row in rows {
             // println!("\nRow: {:?}", row);
             // println!("Column mapping: {:?}", column_mapping);
+            
+            // Write deleted=0
+            self.file.write(&[0]).expect("Failed to write deleted=0");
             
             // Column offsets
             // FIXME: This is bad.
@@ -225,59 +247,79 @@ impl Storage for DiskStorage {
     }
 
     fn scan(&self) -> TableIterator {
-        // TODO: Use mmap instead
-        let mut reader = BufReader::new(File::open(&self.file_path).expect("Failed to open file"));
-        let mut row_num: RowId = 0;
-        let mut magic_buf = MagicType::default();
-        reader.read_exact(&mut magic_buf).expect("Failed to read magic number");
-        assert_eq!(&magic_buf, HEADER_MAGIC);
-        let mut offsets_per_row_buf = usize::to_le_bytes(0);
-        reader.read_exact(&mut offsets_per_row_buf).expect("Failed to read offsets per row");
 
-        let num_offsets = usize::from_le_bytes(offsets_per_row_buf);
-        // println!("Number of offsets per row: {num_offsets}");
+        let (mut reader, offsets_bytes) = self.new_reader();        // TODO: Use mmap instead
+        let mut row_num: RowId = 0;
 
         TableIterator::new(Box::new(std::iter::from_fn(move || {
+
             // println!("\nReading row {row_num}...");
+            loop {
+                
+                // Read tombstone
+                let mut tombstone_buf = 0u8.to_ne_bytes();
+                if reader.read_exact(&mut tombstone_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
+                    // Reached end of file
+                    return None;
+                }
+                
+                // Check if row is marked as deleted
+                if u8::from_ne_bytes(tombstone_buf) != 0 {
+                    // Skip row column offsets
+                    reader.seek_relative(offsets_bytes as i64).expect(format!("Failed to skip offsets in {row_num}").as_str());
 
-            // Read row column offsets
-            let mut offsets_buf = vec![0u8; num_offsets * size_of::<usize>()];
-            if reader.read_exact(&mut offsets_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
-                // println!("End of file - no more rows");
-                return None;
+                    // Skip row content
+                    let mut len_buf = usize::to_le_bytes(0);
+                    reader.read_exact(&mut len_buf).expect("Failed to read content length");
+                    let content_len = usize::from_le_bytes(len_buf);
+                    reader.seek_relative(content_len as i64).expect(format!("Failed to skip content in {row_num}").as_str());
+
+                    // Try to read next row
+                    row_num += 1;
+                    continue;
+                }
+
+                // Read row column offsets
+                let mut offsets_buf = vec![0u8; offsets_bytes];
+                reader.read_exact(&mut offsets_buf).expect(format!("Failed to read offsets at {row_num}").as_str());
+                let offsets: Vec<usize> = offsets_buf.chunks(size_of::<usize>())
+                    .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
+                    .collect();
+                // println!("Offsets: {:?}", offsets);
+
+                // Read content length
+                let mut len_buf = usize::to_le_bytes(0);
+                reader.read_exact(&mut len_buf).expect("Failed to read content length");
+                let content_len = usize::from_le_bytes(len_buf);
+
+                // Read content
+                let mut content = vec![0u8; content_len];
+                reader.read_exact(&mut content).expect("Failed to read content");
+                // println!("Content: {:?}", content);
+
+                // Create scan item
+                // FIXME: Dark Rust magic
+                let content_box = content.into_boxed_slice();
+                let offsets_box = offsets.into_boxed_slice();
+                let row_content = RowContent {
+                    data: Box::leak(content_box),
+                    offsets: Box::leak(offsets_box),
+                };
+                // print!("Row content: {row_content:?}\n");
+                let row_id = row_num.clone();
+                row_num += 1;
+                return Some((row_id, row_content));
             }
-            let offsets: Vec<usize> = offsets_buf.chunks(size_of::<usize>())
-                .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
-                .collect();
-            // println!("Offsets: {:?}", offsets);
-
-            // Read content length
-            let mut len_buf = usize::to_le_bytes(0);
-            reader.read_exact(&mut len_buf).expect("Failed to read content length");
-            let content_len = usize::from_le_bytes(len_buf);
-
-            // Read content
-            let mut content = vec![0u8; content_len];
-            reader.read_exact(&mut content).expect("Failed to read content");
-            // println!("Content: {:?}", content);
-
-            // Create scan item
-            // FIXME: Dark Rust magic
-            let content_box = content.into_boxed_slice();
-            let offsets_box = offsets.into_boxed_slice();
-            let row_content = RowContent {
-                data: Box::leak(content_box),
-                offsets: Box::leak(offsets_box),
-            };
-            // print!("Row content: {row_content:?}\n");
-            let row_id = row_num.clone();
-            row_num += 1;
-            Some((row_id, row_content))
         })))
     }
 
-    fn delete_rows(&mut self, _row_ids: Vec<RowId>) {
-        // Implement file deletion later
+    fn delete_rows(&mut self, row_ids: Vec<RowId>) {
+        // FIXME: Is Rust really that bad and requires redeclaration of an OWNED param just to mutate it?
+        let mut row_ids = row_ids;
+        row_ids.sort();
+
+        // let iter = row_ids.iter();
+
         unimplemented!()
     }
 }
