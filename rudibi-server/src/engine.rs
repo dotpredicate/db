@@ -265,13 +265,9 @@ impl Database {
         // TODO: Some mechanism of reporting / logging internal assertions
         assert!(column_mapping.len() == columns.len(), "Column mapping should match the number of columns requested");
 
-        // Validate filter columns
-        let filter_columns: Vec<&str> = filters.iter().map(|f| match f {
-            Filter::Equal { column, .. } => column.as_str(),
-            Filter::GreaterThan { column, .. } => column.as_str(),
-            Filter::LessThan { column, .. } => column.as_str(),
-        }).collect();
+        let filter_columns = Self::extract_filtered_columns(filters);
         // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
+        // Validate filter columns
         schema.project_to_schema_optional(&filter_columns)?;
     
         // Filter and map rows
@@ -294,11 +290,7 @@ impl Database {
         let schema = self.schema_for(table_name)?;
 
         // Validate filter columns
-        let filter_columns: Vec<&str> = filters.iter().map(|f| match f {
-            Filter::Equal { column, .. } => column.as_str(),
-            Filter::GreaterThan { column, .. } => column.as_str(),
-            Filter::LessThan { column, .. } => column.as_str(),
-        }).collect();
+        let filter_columns = Self::extract_filtered_columns(filters);
         schema.project_to_schema_optional(&filter_columns)?;
 
         // Filter rows to remove
@@ -313,6 +305,14 @@ impl Database {
         // FIXME: Mutable borrow, again - borrow checker, storage.as_mut() doesn't work
         self.mut_storage_for(table_name)?.delete_rows(to_remove);
         Ok(removed)
+    }
+
+    fn extract_filtered_columns(filters: &[Filter]) -> Vec<&str> {
+        filters.iter().map(|f| match f {
+            Filter::Equal { column, .. } => column.as_str(),
+            Filter::GreaterThan { column, .. } => column.as_str(),
+            Filter::LessThan { column, .. } => column.as_str(),
+        }).collect()
     }
 
     pub fn schema_for(&self, table_name: &str) -> Result<&Table, DbError> {
