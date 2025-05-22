@@ -153,7 +153,7 @@ impl InMemoryStorage {
 
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::fs::{File, OpenOptions};
-use std::os::unix::fs::MetadataExt;
+
 pub struct DiskStorage {
     path: String,
 }
@@ -168,8 +168,8 @@ impl DiskStorage {
             path: path.to_string()
         };
 
-        // TODO: Some persistence - File::create always truncates existing file
-        // Initial write - new file
+        // FIXME: Opening file again should not override header
+        // FIXME: Tests always pre-create the file. Will this work if file is not present?
         let mut writer = storage.new_writer();
         writer.write_all(HEADER_MAGIC).expect("Failed to write magic number");
         writer.write_all(&(schema.columns.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
@@ -249,7 +249,7 @@ impl Storage for DiskStorage {
 
             // println!("\nReading row {row_num}...");
             loop {
-                
+                // println!("Will attempt to read row {}", row_num);
                 // Read tombstone
                 let mut tombstone_buf = 0u8.to_ne_bytes();
                 if reader.read_exact(&mut tombstone_buf).is_err_and(|err| err.kind() == std::io::ErrorKind::UnexpectedEof) {
@@ -313,16 +313,20 @@ impl Storage for DiskStorage {
         row_ids.sort();
 
         let (mut reader, offsets_bytes) = self.new_reader();
-        let mut row_num: RowId = 0;
+        let mut writer = self.new_writer();
 
+        let mut row_num: RowId = 0;
         for next_deleted in row_ids {
             'scan_loop: loop {
                 // Write deleted=1
                 if row_num == next_deleted {
-                    
+                    let row_start = reader.stream_position().expect(format!("Failed to read stream position at row {}", row_num).as_str());
+                    // println!("Will mark tombstone for {} at {}", row_num, row_start);
+                    writer.seek(std::io::SeekFrom::Start(row_start)).expect(format!("Failed to seek writer to {} at row {}", row_start, row_num).as_str());
+                    writer.write(&[1]).expect(format!("Failed to write tombstone at {}", row_num).as_str());
+                    break 'scan_loop;
                 }
-                let mut tombstone_buf = 0u8.to_ne_bytes();
-                reader.read_exact(&mut tombstone_buf).expect(format!("Failed to read {row_num}").as_str());
+                reader.seek_relative(1).expect(format!("Failed to seek past tombstone of {row_num}").as_str());
                 
                 // Check if row is marked as deleted
                 // Skip row column offsets

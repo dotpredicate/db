@@ -56,6 +56,7 @@ pub fn random_temp_file() -> String {
         let fname = format!("{}/test_{}.db", tmp.display(), unix_timestamp.as_nanos());
         match File::create_new(fname.clone()) {
             Ok(_) => {
+                // println!("Created new file {}", fname);
                 break fname;
             }
             Err(_) => (),

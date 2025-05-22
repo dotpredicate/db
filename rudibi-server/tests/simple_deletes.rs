@@ -33,7 +33,6 @@ fn test_delete_empty_in_mem() {
 }
 
 #[test]
-#[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_empty_on_disk() {
     test_delete_empty(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
@@ -68,7 +67,6 @@ fn test_delete_with_equality_filter_in_mem() {
 }
 
 #[test]
-#[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_with_equality_filter_on_disk() {
     test_delete_with_equality_filter(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
@@ -104,7 +102,6 @@ fn test_delete_with_greater_than_filter_in_mem() {
 }
 
 #[test]
-#[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_with_greater_than_filter_on_disk() {
     test_delete_with_greater_than_filter(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
@@ -128,7 +125,6 @@ fn test_delete_all_rows_in_mem() {
 }
 
 #[test]
-#[ignore = "TODO: Deleting on disk not implemented"]
 fn test_delete_all_rows_on_disk() {
     test_delete_all_rows(StorageCfg::Disk { path: testlib::random_temp_file() });
 }
