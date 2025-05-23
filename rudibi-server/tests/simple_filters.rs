@@ -1,4 +1,5 @@
 
+use rudibi_server::dtype::ColumnValue;
 use rudibi_server::engine::*;
 use rudibi_server::testlib;
 use rudibi_server::serial::Serializable;
@@ -126,7 +127,7 @@ fn test_multiple_filters() {
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     for row in &results {
-        let id = db.get_column_value(&schema, &row, 0).unwrap();
+        let id = testlib::get_column_value(&schema, &row, 0);
         assert!(matches!(id, ColumnValue::U32(val) if val > 100));
     }
 }

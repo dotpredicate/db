@@ -1,4 +1,5 @@
 
+use rudibi_server::dtype::*;
 use rudibi_server::engine::*;
 use rudibi_server::testlib;
 use rudibi_server::rows;
@@ -50,11 +51,11 @@ fn test_all_data_types(storage: StorageCfg) {
     assert_eq!(results.len(), 1);
     let row = &results[0];
     let schema = db.schema_for("MixedTypes").unwrap();
-    assert!(matches!(db.get_column_value(&schema, &row, 0).unwrap(), ColumnValue::U32(42)));
-    assert!(matches!(db.get_column_value(&schema, row, 1).unwrap(), ColumnValue::F64(3.14)));
-    assert!(matches!(db.get_column_value(&schema, &row, 2).unwrap(), ColumnValue::String(ref s) if s == "hello"));
-    assert!(matches!(db.get_column_value(&schema, &row, 3).unwrap(), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
-    assert!(matches!(db.get_column_value(&schema, row, 4).unwrap(), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 0), ColumnValue::U32(42)));
+    assert!(matches!(testlib::get_column_value(&schema, row, 1), ColumnValue::F64(3.14)));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 2), ColumnValue::String(ref s) if s == "hello"));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 3), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
+    assert!(matches!(testlib::get_column_value(&schema, row, 4), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
 }
 
 #[test]
@@ -125,7 +126,7 @@ fn test_out_of_order_store(storage: StorageCfg) {
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let names: Vec<String> = results.iter().map(|row| {
-        match db.get_column_value(&schema, &row, 1).unwrap() {
+        match testlib::get_column_value(&schema, &row, 1) {
             ColumnValue::String(name) => name,
             x => panic!("Expected String, got {:?}", x),
         }

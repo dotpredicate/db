@@ -19,7 +19,7 @@ impl RowContent<'_> {
     }
 }
 
-type ScanItem<'a> = (RowId, RowContent<'a>);
+pub struct ScanItem<'a> { pub row_id: RowId, pub row_content: RowContent<'a> }
 
 // Rust requires a concrete implementation in return types for traits or something.
 // This is a workaround.
@@ -112,8 +112,8 @@ impl Storage for InMemoryStorage {
     fn scan(&self) -> TableIterator {
         TableIterator::new(Box::new(
             (0..self.row_data_starts.len()).map(move |row_id| {
-                let row_content = self.get_row_content(row_id);
-                (row_id, row_content.unwrap())
+                let row_content = self.get_row_content(row_id).unwrap();
+                ScanItem { row_id, row_content }
             })
         ))
     }
@@ -306,7 +306,7 @@ impl Storage for DiskStorage {
                 // print!("Row content: {row_content:?}\n");
                 let row_id = row_num.clone();
                 row_num += 1;
-                return Some((row_id, row_content));
+                return Some(ScanItem { row_id, row_content } );
             }
         })))
     }

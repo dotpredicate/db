@@ -1,4 +1,5 @@
 
+use rudibi_server::dtype::DataType;
 use rudibi_server::engine::*;
 
 #[test]

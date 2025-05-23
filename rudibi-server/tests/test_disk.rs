@@ -1,4 +1,5 @@
 
+use rudibi_server::dtype::DataType;
 use rudibi_server::rows;
 use rudibi_server::engine::*;
 use rudibi_server::storage::{DiskStorage, RowContent, Storage};
@@ -10,7 +11,7 @@ fn test_single_column() {
     let rows = rows![[1u32]];
     storage.store(rows, &vec![0]);
 
-    let read: Vec<RowContent> = storage.scan().map(|x| x.1).collect();
+    let read: Vec<RowContent> = storage.scan().map(|i| i.row_content).collect();
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].get_column(0), &1u32.to_le_bytes());
 }
@@ -24,7 +25,7 @@ fn test_multiple_columns() {
     ];
     storage.store(rows, &vec![0, 1]);
 
-    let read_rows: Vec<RowContent> = storage.scan().map(|x| x.1).collect();
+    let read_rows: Vec<RowContent> = storage.scan().map(|i| i.row_content).collect();
     assert_eq!(read_rows.len(), 2);
     assert_eq!(read_rows[0].get_column(0), &1u32.to_le_bytes());
     assert_eq!(read_rows[0].get_column(1), &[1, 2, 3, 4]);

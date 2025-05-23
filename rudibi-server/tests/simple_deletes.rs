@@ -1,4 +1,5 @@
 
+use rudibi_server::dtype::ColumnValue;
 use rudibi_server::engine::*;
 use rudibi_server::testlib;
 use rudibi_server::serial::Serializable;
@@ -53,7 +54,7 @@ fn test_delete_with_equality_filter(storage: StorageCfg) {
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let names: Vec<String> = results.iter().map(|row| {
-        match db.get_column_value(&schema, &row, 1).unwrap() {
+        match testlib::get_column_value(&schema, &row, 1) {
             ColumnValue::String(name) => name,
             x => panic!("Expected String, got {:?}", x),
         }
@@ -87,7 +88,7 @@ fn test_delete_with_greater_than_filter(storage: StorageCfg) {
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let ids: Vec<u32> = results.iter().map(|row| {
-        if let ColumnValue::U32(id) = db.get_column_value(&schema, &row, 0).unwrap() {
+        if let ColumnValue::U32(id) = testlib::get_column_value(&schema, &row, 0) {
             id
         } else {
             panic!("Expected U32");

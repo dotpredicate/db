@@ -1,38 +1,7 @@
 use std::collections::HashMap;
 
-use crate::storage::{DiskStorage, InMemoryStorage, RowContent, RowId, Storage};
-
-#[derive(Debug, Clone)]
-pub enum DataType {
-    U32,
-    F64,
-    UTF8 { max_bytes: usize },
-    VARBINARY { max_length: usize },
-    BUFFER { length: usize }
-}
-
-impl DataType {
-
-    pub fn min_size(&self) -> usize {
-        match self {
-            DataType::U32 => size_of::<u32>(),
-            DataType::F64 => size_of::<f64>(),
-            DataType::UTF8 { max_bytes: _ } => 0,
-            DataType::VARBINARY { max_length: _ } => 0,
-            DataType::BUFFER { length } => *length
-        }
-    }
-
-    pub fn max_size(&self) -> usize {
-        match self {
-            DataType::U32 => size_of::<u32>(),
-            DataType::F64 => size_of::<f64>(),
-            DataType::UTF8 { max_bytes } => *max_bytes,
-            DataType::VARBINARY { max_length } => *max_length,
-            DataType::BUFFER { length } => *length
-        }
-    }
-}
+use crate::dtype::*;
+use crate::storage::{DiskStorage, InMemoryStorage, RowContent, RowId, ScanItem, Storage};
 
 #[derive(Debug, PartialEq)]
 pub enum DbError {
@@ -45,27 +14,19 @@ pub enum DbError {
     RowSizeTooSmall { got: usize, min: usize },
     ColumnSizeOutOfBounds { column: String, got: usize, min: usize, max: usize },
     UnsupportedOperation(String),
-    ConversionError,
+    DatabaseIntegrityError(String)
 }
 
 #[derive(Debug, Clone)]
 pub struct Column {
-    name: String,
-    dtype: DataType,
+    pub name: String,
+    pub dtype: DataType,
 }
 
 impl Column {
     pub fn new(name: &str, dtype: DataType) -> Column {
         Column { name: name.to_string(), dtype }
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ColumnValue {
-    U32(u32),
-    F64(f64),
-    String(String),
-    Bytes(Vec<u8>),
 }
 
 #[derive(Debug, Clone)]
@@ -272,12 +233,12 @@ impl Database {
     
         // Filter and map rows
         let mut results = Vec::new();
-        for (_, row) in storage.scan() {
-            if self.filter_row(&schema, &row, &filters)? {
+        for item in storage.scan() {
+            if self.filter_row(&schema, &item, &filters)? {
                 let mut selected_row = Vec::new();
                 for proj_col in &column_mapping {
                     // FIXME: Cloning
-                    selected_row.push(row.get_column(proj_col.clone()));
+                    selected_row.push(item.row_content.get_column(proj_col.clone()));
                 }
                 let projected = Row::of_columns(&selected_row);
                 results.push(projected);
@@ -294,11 +255,10 @@ impl Database {
         schema.project_to_schema_optional(&filter_columns)?;
 
         // Filter rows to remove
-        let to_remove: Vec<RowId> = self.storage_for(table_name)?
-            .scan()
-            .filter(|(_, row)| self.filter_row(&schema, &row, &filters).unwrap_or(false))
-            .map(|(row_id, _)| row_id)
-            .collect();
+        let mut to_remove: Vec<RowId> = Vec::new();
+        for item in self.storage_for(table_name)?.scan() {
+            if self.filter_row(&schema, &item, &filters)? { to_remove.push(item.row_id); }
+        }
 
         // Execute removal
         let removed = to_remove.len();
@@ -334,31 +294,7 @@ impl Database {
     }
 
     // TODO: This probably should go somewhere else
-    pub fn canonical_column(&self, schema: &Column, data: &[u8]) -> Result<ColumnValue, DbError> {
-        match schema.dtype {
-            DataType::U32 => { Ok(ColumnValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| DbError::ConversionError)?))) }
-            DataType::F64 => { Ok(ColumnValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| DbError::ConversionError)?))) }
-            DataType::UTF8 { .. } => Ok(ColumnValue::String(
-                String::from_utf8(data.to_vec()).map_err(|_| DbError::ConversionError)?,
-            )),
-            DataType::VARBINARY { .. } => Ok(ColumnValue::Bytes(data.to_vec())),
-            DataType::BUFFER { length } => {
-                if data.len() != length {
-                    return Err(DbError::ConversionError);
-                }
-                Ok(ColumnValue::Bytes(data.to_vec()))
-            }
-        }
-    }
-
-    // TODO: This probably should go somewhere else. Like a client-side util?
-    pub fn get_column_value(&self, schema: &Table, row: &Row, col_idx: usize) -> Result<ColumnValue, DbError> {
-        let col_scheme = &schema.columns[col_idx];
-        self.canonical_column(col_scheme, row.get_column(col_idx))
-    }
-
-    // TODO: This probably should go somewhere else
-    fn filter_row(&self, schema: &Table, row: &RowContent, filters: &[Filter]) -> Result<bool, DbError> {
+    fn filter_row(&self, schema: &Table, item: &ScanItem, filters: &[Filter]) -> Result<bool, DbError> {
         for filter in filters {
             let (column, value) = match filter {
                 Filter::Equal { column, value } => (column, value),
@@ -366,8 +302,13 @@ impl Database {
                 Filter::LessThan { column, value } => (column, value),
             };
             let (col_idx, col_scheme) = schema.require_column(column)?;
-            let col_value = self.canonical_column(&col_scheme, row.get_column(col_idx))?;
-            let filter_val = self.convert_filter_value(value, &col_scheme.dtype);
+            
+            // TODO: add implicit casting
+            let col_value = canonical_column(&col_scheme.dtype, item.row_content.get_column(col_idx))
+                .map_err(|_| DbError::DatabaseIntegrityError(
+                    format!("Column {} at RowId={} in {} cannot be represented as data type {:?}", column, item.row_id, &schema.name, &col_scheme.dtype))
+                )?;
+            let filter_val = convert_filter_value(value, &col_scheme.dtype);
     
             let passes = match filter {
                 Filter::Equal { .. } => col_value == filter_val,
@@ -391,16 +332,5 @@ impl Database {
             }
         }
         Ok(true)
-    }
-
-    // TODO: This probably should go somewhere else
-    fn convert_filter_value(&self, value: &[u8], dtype: &DataType) -> ColumnValue {
-        match dtype {
-            DataType::U32 => ColumnValue::U32(u32::from_le_bytes(value.try_into().unwrap())),
-            DataType::F64 => ColumnValue::F64(f64::from_le_bytes(value.try_into().unwrap())),
-            DataType::UTF8 { .. } => ColumnValue::String(String::from_utf8(value.to_vec()).unwrap()),
-            DataType::VARBINARY { .. } => ColumnValue::Bytes(value.to_vec()),
-            DataType::BUFFER { .. } => ColumnValue::Bytes(value.to_vec()),
-        }
     }
 }

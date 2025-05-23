@@ -1,5 +1,14 @@
 
+use crate::dtype::*;
 use crate::engine::*;
+
+
+
+// TODO: This probably should go somewhere else. Like a client-side util?
+pub fn get_column_value(schema: &Table, row: &Row, col_idx: usize) -> ColumnValue {
+    let col_scheme = &schema.columns[col_idx];
+    canonical_column(&col_scheme.dtype, row.get_column(col_idx)).unwrap()
+}
 
 pub fn fruits_schema() -> Table {
     Table::new("Fruits",
