@@ -151,7 +151,7 @@ impl InMemoryStorage {
 }
 
 
-use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::fs::{File, OpenOptions};
 
 pub struct DiskStorage {
@@ -170,7 +170,7 @@ impl DiskStorage {
 
         // FIXME: Opening file again should not override header
         // FIXME: Tests always pre-create the file. Will this work if file is not present?
-        let mut writer = storage.new_writer();
+        let mut writer = storage.buf_writer();
         writer.write_all(HEADER_MAGIC).expect("Failed to write magic number");
         writer.write_all(&(schema.columns.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
         return storage;
@@ -192,9 +192,13 @@ impl DiskStorage {
         return (reader, offsets_bytes);
     }
 
-    pub fn new_writer(&self) -> BufWriter<File> {
+    pub fn buf_writer(&self) -> BufWriter<File> {
         let file = OpenOptions::new().write(true).open(&self.path).expect("Failed to open file for writing");
         BufWriter::new(file)
+    }
+
+    pub fn file_writer(&self) -> File {
+        OpenOptions::new().write(true).open(&self.path).expect("Failed to open file for writing")
     }
 }
 
@@ -205,8 +209,8 @@ impl Storage for DiskStorage {
         // println!("DiskStorage::store - start - storing {} rows", rows.len());
         // TODO: Storage error handling
         // TODO: This is probably not optimal
-        let mut writer = self.new_writer();
-        writer.seek(std::io::SeekFrom::End(0)).expect("Failed to seek writer to end");
+        let mut writer = self.buf_writer();
+        writer.seek(SeekFrom::End(0)).expect("Failed to seek writer to end");
         // println!("Position {}", writer.stream_position().unwrap());
         for row in rows {
             // println!("\nRow: {:?}", row);
@@ -313,27 +317,27 @@ impl Storage for DiskStorage {
         row_ids.sort();
 
         let (mut reader, offsets_bytes) = self.new_reader();
-        let mut writer = self.new_writer();
+        let mut writer = self.file_writer();
 
         let mut row_num: RowId = 0;
+        let mut len_buf = usize::to_le_bytes(0);
+
         for next_deleted in row_ids {
             'scan_loop: loop {
                 // Write deleted=1
                 if row_num == next_deleted {
                     let row_start = reader.stream_position().expect(format!("Failed to read stream position at row {}", row_num).as_str());
                     // println!("Will mark tombstone for {} at {}", row_num, row_start);
-                    writer.seek(std::io::SeekFrom::Start(row_start)).expect(format!("Failed to seek writer to {} at row {}", row_start, row_num).as_str());
+                    writer.seek(SeekFrom::Start(row_start)).expect(format!("Failed to seek writer to {} at row {}", row_start, row_num).as_str());
                     writer.write(&[1]).expect(format!("Failed to write tombstone at {}", row_num).as_str());
                     break 'scan_loop;
                 }
-                reader.seek_relative(1).expect(format!("Failed to seek past tombstone of {row_num}").as_str());
                 
                 // Check if row is marked as deleted
-                // Skip row column offsets
-                reader.seek_relative(offsets_bytes as i64).expect(format!("Failed to skip offsets in {row_num}").as_str());
+                // Skip tombstone and row column offsets
+                reader.seek_relative(1 + offsets_bytes as i64).expect(format!("Failed to skip offsets in {row_num}").as_str());
 
                 // Skip row content
-                let mut len_buf = usize::to_le_bytes(0);
                 reader.read_exact(&mut len_buf).expect("Failed to read content length");
                 let content_len = usize::from_le_bytes(len_buf);
                 reader.seek_relative(content_len as i64).expect(format!("Failed to skip content in {row_num}").as_str());
