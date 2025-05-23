@@ -47,14 +47,15 @@ pub enum TypeError {
     ConversionError
 }
 
-pub fn convert_filter_value(value: &[u8], dtype: &DataType) -> ColumnValue {
-    match dtype {
-        DataType::U32 => ColumnValue::U32(u32::from_le_bytes(value.try_into().unwrap())),
-        DataType::F64 => ColumnValue::F64(f64::from_le_bytes(value.try_into().unwrap())),
-        DataType::UTF8 { .. } => ColumnValue::String(String::from_utf8(value.to_vec()).unwrap()),
+pub fn convert_filter_value(value: &[u8], dtype: &DataType) -> Result<ColumnValue, TypeError> {
+    let result = match dtype {
+        DataType::U32 => ColumnValue::U32(u32::from_le_bytes(value.try_into().map_err(|_| TypeError::ConversionError)?)),
+        DataType::F64 => ColumnValue::F64(f64::from_le_bytes(value.try_into().map_err(|_| TypeError::ConversionError)?)),
+        DataType::UTF8 { .. } => ColumnValue::String(String::from_utf8(value.to_vec()).map_err(|_| TypeError::ConversionError)?),
         DataType::VARBINARY { .. } => ColumnValue::Bytes(value.to_vec()),
         DataType::BUFFER { .. } => ColumnValue::Bytes(value.to_vec()),
-    }
+    };
+    Ok(result)
 }
 
 pub fn canonical_column(dtype: &DataType, data: &[u8]) -> Result<ColumnValue, TypeError> {

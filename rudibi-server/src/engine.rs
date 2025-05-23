@@ -13,6 +13,8 @@ pub enum DbError {
     RowSizeExceeded { got: usize, max: usize },
     RowSizeTooSmall { got: usize, min: usize },
     ColumnSizeOutOfBounds { column: String, got: usize, min: usize, max: usize },
+    InputError(String),
+
     UnsupportedOperation(String),
     DatabaseIntegrityError(String)
 }
@@ -308,7 +310,8 @@ impl Database {
                 .map_err(|_| DbError::DatabaseIntegrityError(
                     format!("Column {} at RowId={} in {} cannot be represented as data type {:?}", column, item.row_id, &schema.name, &col_scheme.dtype))
                 )?;
-            let filter_val = convert_filter_value(value, &col_scheme.dtype);
+            let filter_val = convert_filter_value(value, &col_scheme.dtype)
+                .map_err(|_| DbError::InputError(format!("Cannot convert value of filter {:?} to {:?}", filter, &col_scheme.dtype)))?;
     
             let passes = match filter {
                 Filter::Equal { .. } => col_value == filter_val,
