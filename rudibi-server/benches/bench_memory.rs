@@ -33,8 +33,26 @@ fn select_half_filter_lt(bencher: divan::Bencher, n: u32) {
     sample_size = 5,
     args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
 )]
+fn select_half_filter_lt_new(bencher: divan::Bencher, n: u32) {
+    bench_scenarios::select_half_filter_lt_new(bencher, n, in_mem_provider);
+}
+
+#[divan::bench(
+    sample_count = 10,
+    sample_size = 5,
+    args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
+)]
 fn select_all(bencher: divan::Bencher, n: u32) {
     bench_scenarios::select_all(bencher, n, in_mem_provider);
+}
+
+#[divan::bench(
+    sample_count = 10,
+    sample_size = 5,
+    args = [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
+)]
+fn select_all_new(bencher: divan::Bencher, n: u32) {
+    bench_scenarios::select_all_new(bencher, n, in_mem_provider);
 }
 
 #[divan::bench(

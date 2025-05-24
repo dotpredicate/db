@@ -123,7 +123,7 @@ impl InMemoryStorage {
 
     pub fn new(schema: Table) -> Self {
         InMemoryStorage {
-            offsets_per_row: schema.columns.len() + 1,
+            offsets_per_row: schema.column_layout.len() + 1,
             data: Vec::new(),
             relative_column_offsets: Vec::new(),
             row_data_starts: Vec::new(),
@@ -172,7 +172,7 @@ impl DiskStorage {
         // FIXME: Tests always pre-create the file. Will this work if file is not present?
         let mut writer = storage.buf_writer();
         writer.write_all(HEADER_MAGIC).expect("Failed to write magic number");
-        writer.write_all(&(schema.columns.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
+        writer.write_all(&(schema.column_layout.len() + 1 as usize).to_le_bytes()).expect("Failed to write offsets per row");
         return storage;
     }
 

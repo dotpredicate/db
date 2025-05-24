@@ -1,6 +1,7 @@
 
-use rudibi_server::dtype::ColumnValue;
+use rudibi_server::dtype::{ColumnValue::*, TypeError};
 use rudibi_server::engine::*;
+use rudibi_server::query::{Bool, Bool::*, Value::*};
 use rudibi_server::testlib;
 use rudibi_server::serial::Serializable;
 
@@ -10,9 +11,7 @@ fn test_equality() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select("Fruits", &["id", "name"],
-        &[Filter::Equal { column: "name".into(), value: "banana".as_bytes().to_vec() }],
-    ).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("banana".to_string())))).unwrap();
     
     // THEN
     assert_eq!(results.len(), 2);
@@ -40,9 +39,7 @@ fn test_gt() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select("Fruits", &["id", "name"],
-        &[Filter::GreaterThan { column: "id".into(), value: 200u32.serialized().to_vec() }],
-    ).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Gt(ColumnRef("id"), Const(U32(200)))).unwrap();
 
     // THEN
     let expected_names = vec!["banana", "cherry"];
@@ -69,13 +66,10 @@ fn test_gt_utf8_unsupported() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select("Fruits", &["name"],
-        &[Filter::GreaterThan { column: "name".into(), value: "banana".serialized().to_vec() }],
-    );
+    let result = db.select_new(&[ColumnRef("name")], "Fruits", &Gt(ColumnRef("name"), Const(UTF8("banana".to_string()))));
 
     // THEN
-    // FIXME: { max_bytes: 20 } should not be printed
-    assert!(result.is_err(), "{result:#?}");
+    assert!(matches!(result, Err(DbError::QueryError(TypeError::InvalidArgType(_, _, _)))), "{result:#?}");
 }
 
 #[test]
@@ -84,9 +78,7 @@ fn test_lt() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // Test 3: LessThan filter on U32
-    let results = db.select("Fruits", &["id", "name"],
-        &[Filter::LessThan { column: "id".into(), value: 200u32.to_le_bytes().to_vec() }]
-    ).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Lt(ColumnRef("id"), Const(U32(200)))).unwrap();
     assert_eq!(results.len(), 1);
     let row = &results[0];
     assert_eq!(row.get_column(0), 100u32.serialized());
@@ -100,9 +92,7 @@ fn apply_projection() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select("Fruits", &["name"],
-        &[Filter::Equal { column: "id".into(), value: 100u32.serialized().to_vec() }],
-    ).unwrap();
+    let results = db.select_new(&[ColumnRef("name")], "Fruits", &Eq(ColumnRef("id"), Const(U32(100)))).unwrap();
 
     // THEN
     assert_eq!(results.len(), 1);
@@ -116,11 +106,11 @@ fn test_multiple_filters() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select("Fruits", &["id", "name"],
-        &[
-            Filter::GreaterThan { column: "id".into(), value: 100u32.serialized().to_vec() },
-            Filter::Equal { column: "name".into(), value: "banana".serialized().to_vec() },
-        ],
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", 
+        &Bool::and(
+            Gt(ColumnRef("id"), Const(U32(100))), 
+            Eq(ColumnRef("name"), Const(UTF8("banana".to_string())))
+        )
     ).unwrap();
 
     // THEN
@@ -128,7 +118,7 @@ fn test_multiple_filters() {
     let schema = db.schema_for("Fruits").unwrap();
     for row in &results {
         let id = testlib::get_column_value(&schema, &row, 0);
-        assert!(matches!(id, ColumnValue::U32(val) if val > 100));
+        assert!(matches!(id, U32(val) if val > 100));
     }
 }
 
@@ -138,9 +128,7 @@ fn test_no_matching_rows() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select("Fruits", &["id", "name"],
-        &[Filter::Equal { column: "name".into(), value: "orange".serialized().to_vec() }],
-    ).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("orange".to_string())))).unwrap();
     
     // THEN
     assert_eq!(results.len(), 0);
@@ -152,7 +140,7 @@ fn test_no_filters() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select("Fruits", &["id", "name"], &[]).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Bool::True).unwrap();
     
     // THEN
     assert_eq!(results.len(), 4);
@@ -164,7 +152,7 @@ fn test_invalid_column() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select("Fruits", &["invalid_column"], &[]);
+    let result = db.select_new(&[ColumnRef("invalid_column")], "Fruits", &True);
 
     // THEN
     assert_eq!(result.unwrap_err(), DbError::ColumnNotFound("invalid_column".into()));
@@ -176,7 +164,7 @@ fn test_invalid_table() {
     let db = Database::new();
 
     // WHEN
-    let result = db.select("NonExistent", &["id"], &[]);
+    let result = db.select_new(&[ColumnRef("id")], "NonExistent", &True);
 
     // THEN
     assert_eq!(result.unwrap_err(), DbError::TableNotFound("NonExistent".into()));

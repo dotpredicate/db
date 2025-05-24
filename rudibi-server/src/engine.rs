@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::dtype::*;
-use crate::storage::{DiskStorage, InMemoryStorage, RowContent, RowId, ScanItem, Storage};
+use crate::query::{Bool, Value};
+use crate::storage::{DiskStorage, InMemoryStorage, RowId, ScanItem, Storage};
 
 #[derive(Debug, PartialEq)]
 pub enum DbError {
@@ -13,7 +14,9 @@ pub enum DbError {
     RowSizeExceeded { got: usize, max: usize },
     RowSizeTooSmall { got: usize, min: usize },
     ColumnSizeOutOfBounds { column: String, got: usize, min: usize, max: usize },
+
     InputError(String),
+    QueryError(TypeError),
 
     UnsupportedOperation(String),
     DatabaseIntegrityError(String)
@@ -34,7 +37,8 @@ impl Column {
 #[derive(Debug, Clone)]
 pub struct Table {
     pub name: String,
-    pub columns: Vec<Column>,
+    pub columns: HashMap<String, (usize, Column)>,
+    pub column_layout: Vec<Column>,
     pub min_row_size: usize,
     pub max_row_size: usize,
 }
@@ -46,14 +50,14 @@ impl Table {
             name: name.to_string(),
             min_row_size: schema.iter().map(|c| c.dtype.min_size()).sum(),
             max_row_size: schema.iter().map(|c| c.dtype.max_size()).sum(),
-            columns: schema
+            columns: schema.iter().enumerate().map(|(i, c)| (c.name.clone(), (i, c.clone()))).collect(),
+            column_layout: schema,
         }
     }
 
     // Projecting columns in select clauses, filters, etc.
     // Seen as projecting input columns to schema
     pub fn project_to_schema_optional(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
-        // FIXME: O(n^2) check
         let mut indices = Vec::with_capacity(columns.len());
         for col in columns {
             let (col_idx, _) = self.require_column(col)?;
@@ -66,13 +70,13 @@ impl Table {
     // Seen as projecting schema to input columns
     // TODO: Allow partial inserts
     pub fn project_from_schema_required(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
-        if columns.len() != self.columns.len() {
+        if columns.len() != self.column_layout.len() {
             // FIXME: Better error here. Missing required column.
-            return Err(DbError::InvalidColumnCount { expected: self.columns.len(), got: columns.len() });
+            return Err(DbError::InvalidColumnCount { expected: self.column_layout.len(), got: columns.len() });
         }
         // FIXME: O(n^2) check
-        let mut indices = Vec::with_capacity(self.columns.len());
-        for col in &self.columns {
+        let mut indices = Vec::with_capacity(self.column_layout.len());
+        for col in &self.column_layout {
             // FIXME: Better error here. Missing required column.
             let source_idx = columns.iter().position(|c| c == &col.name)
                 .ok_or_else(|| DbError::ColumnNotFound(col.name.clone()))?;
@@ -82,8 +86,8 @@ impl Table {
     }
 
     fn require_column(&self, name: &str) -> Result<(usize, &Column), DbError> {
-        self.columns.iter().enumerate()
-            .find(|(_, col)| col.name == *name)
+        self.columns.get(name)
+            .map(|(i, col)| (i.clone(), col))
             .ok_or_else(|| DbError::ColumnNotFound(name.to_string()))
     }
 
@@ -95,7 +99,7 @@ impl Table {
         // Probably not needed here
         // TODO: allow partial inserts for optional columns
         if input_columns != column_mapping.len(){
-            return Err(DbError::InvalidColumnCount { expected: self.columns.len(), got: input_columns }) ;
+            return Err(DbError::InvalidColumnCount { expected: self.column_layout.len(), got: input_columns }) ;
         }
         
         // Validate the row size
@@ -108,7 +112,7 @@ impl Table {
         }
 
         // Validate each column in schema for size in input
-        for (idx, col) in self.columns.iter().enumerate() {
+        for (idx, col) in self.column_layout.iter().enumerate() {
             let input_col_idx = column_mapping[idx];
             let input_col = row.get_column(input_col_idx);
             let input_col_size = input_col.len();
@@ -169,6 +173,52 @@ pub struct Database {
     storage: HashMap<String, Box<dyn Storage>>
 }
 
+pub struct FilterContext<'a> {
+    schema: &'a Table,
+    item: &'a ScanItem<'a>,
+}
+
+impl<'a> FilterContext<'a> {
+    fn execute_binop(&self, left: &Value, right: &Value, op: fn(&ColumnValue, &ColumnValue) -> Result<bool, TypeError>) -> Result<bool, DbError> {
+        op(&self.resolve_value(&left)?, &self.resolve_value(&right)?).map_err(|err| DbError::QueryError(err))
+    }
+
+    fn resolve_value(&self, val: &Value) -> Result<ColumnValue, DbError> {
+        match val {
+            Value::ColumnRef(column_name) => {
+                let (col_idx, col) = self.schema.require_column(&column_name)?;
+                let col_value = self.item.row_content.get_column(col_idx.clone());
+                canonical_column(&col.dtype, col_value)
+                    .map_err(|_| DbError::DatabaseIntegrityError(
+                        format!("Column {} at RowId={} in {} cannot be represented as data type {:?}", &column_name, &self.item.row_id, &self.schema.name, &col.dtype))
+                    )
+            },
+            // FIXME: Remove the clone once we use pointers
+            Value::Const(column_value) => Ok(column_value.clone()),
+        }
+    }
+}
+
+fn filter_row_new(schema: &Table, item: &ScanItem, filter: &Bool) -> Result<bool, DbError> {
+    let ctx = FilterContext { schema, item };
+    let res = match filter {
+        Bool::True => true,
+        Bool::False => false,
+        
+        Bool::Eq(left, right) => ctx.execute_binop(left, right, ColumnValue::eq)?,
+        Bool::Neq(left, right) => ctx.execute_binop(left, right, |l, r| ColumnValue::eq(l, r).map(|x| !x))?,
+        Bool::Gt(left, right) => ctx.execute_binop(left, right, ColumnValue::gt)?,
+        Bool::Gte(left, right) => ctx.execute_binop(left, right, ColumnValue::gte)?,
+        Bool::Lt(left, right) => ctx.execute_binop(left, right, ColumnValue::lt)?,
+        Bool::Lte(left, right) => ctx.execute_binop(left, right, ColumnValue::lte)?,
+        Bool::And(left, right) => filter_row_new(schema, item, left)? & filter_row_new(schema, item, right)?,
+        Bool::Or(left, right) => filter_row_new(schema, item, left)? | filter_row_new(schema, item, right)?,
+        Bool::Xor(left, right) => filter_row_new(schema, item, left)? ^ filter_row_new(schema, item, right)?,
+        Bool::Not(inner) => !filter_row_new(schema, item, inner)?,
+    };
+    Ok(res)
+}
+
 impl Database {
     pub fn new() -> Database {
         Database {
@@ -183,7 +233,7 @@ impl Database {
             return Err(DbError::TableAlreadyExists(table_name.clone()));
         }
 
-        if new_table.columns.is_empty() {
+        if new_table.column_layout.is_empty() {
             return Err(DbError::EmptyTableSchema);
         }
 
@@ -218,7 +268,7 @@ impl Database {
         Ok(stored)
     }
 
-    pub fn select(&self, table_name: &str, columns: &[&str], filters: &[Filter]) -> Result<Vec<Row>, DbError> {
+    pub fn select_old(&self, table_name: &str, columns: &[&str], filters: &[Filter]) -> Result<Vec<Row>, DbError> {
         let schema = self.schema_for(table_name)?;
         let storage = self.storage_for(table_name)?;
 
@@ -237,6 +287,46 @@ impl Database {
         let mut results = Vec::new();
         for item in storage.scan() {
             if self.filter_row(&schema, &item, &filters)? {
+                let mut selected_row = Vec::new();
+                for proj_col in &column_mapping {
+                    // FIXME: Cloning
+                    selected_row.push(item.row_content.get_column(proj_col.clone()));
+                }
+                let projected = Row::of_columns(&selected_row);
+                results.push(projected);
+            }
+        }
+        Ok(results)
+    }
+
+    pub fn select_new(&self, values: &[Value], table: &str, filter: &Bool) -> Result<Vec<Row>, DbError> {
+        let schema = self.schema_for(&table)?;
+        let storage = self.storage_for(&table)?;
+
+        // Validate and project columns
+        let mut result_columns = Vec::with_capacity(values.len());
+        for val in values {
+            if let Value::ColumnRef(col_name) = val {
+                result_columns.push(col_name.clone());
+            } else {
+                return Err(DbError::UnsupportedOperation(format!("Selecting values other than column references not supported {:?}", val)));
+            }
+        }
+
+        let column_mapping = schema.project_to_schema_optional(&result_columns)?;
+
+        // TODO: Some mechanism of reporting / logging internal assertions
+        assert!(column_mapping.len() == result_columns.len(), "Column mapping should match the number of columns requested");
+
+        let filter_columns = crate::query::parse_filter_columns(&filter);
+        // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
+        // Validate filter columns
+        schema.project_to_schema_optional(&filter_columns)?;
+    
+        // Filter and map rows
+        let mut results = Vec::new();
+        for item in storage.scan() {
+            if filter_row_new(&schema, &item, &filter)? {
                 let mut selected_row = Vec::new();
                 for proj_col in &column_mapping {
                     // FIXME: Cloning
@@ -314,7 +404,14 @@ impl Database {
                 .map_err(|_| DbError::InputError(format!("Cannot convert value of filter {:?} to {:?}", filter, &col_scheme.dtype)))?;
     
             let passes = match filter {
-                Filter::Equal { .. } => col_value == filter_val,
+                Filter::Equal { .. } => match (col_value, filter_val) {
+                    (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val == filter_val,
+                    (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val == filter_val,
+                    (ColumnValue::UTF8(col_val), ColumnValue::UTF8(filter_val)) => col_val == filter_val,
+                    _ => return Err(DbError::UnsupportedOperation(format!(
+                        "Equal filter not supported for data type {:?}", col_scheme.dtype
+                    ))),
+                },
                 Filter::GreaterThan { .. } => match (col_value, filter_val) {
                     (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val > filter_val,
                     (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val > filter_val,

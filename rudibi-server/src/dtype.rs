@@ -35,23 +35,96 @@ impl DataType {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum TypeError {
+    ConversionError,
+    InvalidArgType(String, ColumnValue, ColumnValue)
+}
+
+// TODO: Use pointers here!
+#[derive(Debug, Clone)]
 pub enum ColumnValue {
     U32(u32),
     F64(f64),
-    String(String),
+    UTF8(String),
     Bytes(Vec<u8>),
 }
 
-#[derive(Debug)]
-pub enum TypeError {
-    ConversionError
+impl ColumnValue {
+    pub fn ne(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 != r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 != r0,
+            (Self::UTF8(l0), Self::UTF8(r0)) => l0 != r0,
+            // FIXME: Remove value clones here, describe just the types
+            _ => return Err(TypeError::InvalidArgType("ne".to_string(), self.clone(), other.clone())),
+        };
+        Ok(res)
+    }
+
+    pub fn eq(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 == r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 == r0,
+            (Self::UTF8(l0), Self::UTF8(r0)) => l0 == r0,
+            // FIXME: Remove value clones here, describe just the types
+            _ => return Err(TypeError::InvalidArgType("eq".to_string(), self.clone(), other.clone())),
+        };
+        Ok(res)
+    }
+
+    pub fn gt(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 > r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 > r0,
+            // FIXME: Remove value clones here, describe just the types
+            _ => return Err(TypeError::InvalidArgType("gt".to_string(), self.clone(), other.clone())),
+        };
+        Ok(res)
+    }
+
+    pub fn gte(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 >= r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 >= r0,
+            // FIXME: Remove value clones here, describe just the types
+            _ => return Err(TypeError::InvalidArgType("gte".to_string(), self.clone(), other.clone())),
+        };
+        Ok(res)
+    }
+
+    pub fn lt(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 < r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 < r0,
+            // FIXME: Remove value clones here, describe just the types
+            _ => return Err(TypeError::InvalidArgType("lt".to_string(), self.clone(), other.clone())),
+        };
+        Ok(res)
+    }
+
+    pub fn lte(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 <= r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 <= r0,
+            // FIXME: Remove value clones here, describe just the types
+            _ => return Err(TypeError::InvalidArgType("lte".to_string(), self.clone(), other.clone())),
+        };
+        Ok(res)
+    }
+}
+
+
+// Panicking implementation of `eq`
+// Itended for use in tests
+impl PartialEq for ColumnValue {
+    fn eq(&self, other: &Self) -> bool { ColumnValue::eq(self, other).unwrap() }
 }
 
 pub fn convert_filter_value(value: &[u8], dtype: &DataType) -> Result<ColumnValue, TypeError> {
     let result = match dtype {
         DataType::U32 => ColumnValue::U32(u32::from_le_bytes(value.try_into().map_err(|_| TypeError::ConversionError)?)),
         DataType::F64 => ColumnValue::F64(f64::from_le_bytes(value.try_into().map_err(|_| TypeError::ConversionError)?)),
-        DataType::UTF8 { .. } => ColumnValue::String(String::from_utf8(value.to_vec()).map_err(|_| TypeError::ConversionError)?),
+        DataType::UTF8 { .. } => ColumnValue::UTF8(String::from_utf8(value.to_vec()).map_err(|_| TypeError::ConversionError)?),
         DataType::VARBINARY { .. } => ColumnValue::Bytes(value.to_vec()),
         DataType::BUFFER { .. } => ColumnValue::Bytes(value.to_vec()),
     };
@@ -62,7 +135,7 @@ pub fn canonical_column(dtype: &DataType, data: &[u8]) -> Result<ColumnValue, Ty
     match dtype {
         DataType::U32 => { Ok(ColumnValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| TypeError::ConversionError)?))) }
         DataType::F64 => { Ok(ColumnValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| TypeError::ConversionError)?))) }
-        DataType::UTF8 { .. } => Ok(ColumnValue::String(
+        DataType::UTF8 { .. } => Ok(ColumnValue::UTF8(
             String::from_utf8(data.to_vec()).map_err(|_| TypeError::ConversionError)?,
         )),
         DataType::VARBINARY { .. } => Ok(ColumnValue::Bytes(data.to_vec())),
