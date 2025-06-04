@@ -11,7 +11,7 @@ fn test_equality() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("banana")))).unwrap();
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("banana")))).unwrap();
     
     // THEN
     assert_eq!(results.len(), 2);
@@ -39,7 +39,7 @@ fn test_gt() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Gt(ColumnRef("id"), Const(U32(200)))).unwrap();
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Gt(ColumnRef("id"), Const(U32(200)))).unwrap();
 
     // THEN
     let expected_names = vec!["banana", "cherry"];
@@ -66,7 +66,7 @@ fn test_gt_utf8_unsupported() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select_new(&[ColumnRef("name")], "Fruits", &Gt(ColumnRef("name"), Const(UTF8("banana"))));
+    let result = db.select(&[ColumnRef("name")], "Fruits", &Gt(ColumnRef("name"), Const(UTF8("banana"))));
 
     // THEN
     assert!(matches!(result, Err(DbError::QueryError(TypeError::InvalidArgType(_, _, _)))), "{result:#?}");
@@ -78,7 +78,7 @@ fn test_lt() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // Test 3: LessThan filter on U32
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Lt(ColumnRef("id"), Const(U32(200)))).unwrap();
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Lt(ColumnRef("id"), Const(U32(200)))).unwrap();
     assert_eq!(results.len(), 1);
     let row = &results[0];
     assert_eq!(row.get_column(0), 100u32.serialized());
@@ -92,7 +92,7 @@ fn apply_projection() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("name")], "Fruits", &Eq(ColumnRef("id"), Const(U32(100)))).unwrap();
+    let results = db.select(&[ColumnRef("name")], "Fruits", &Eq(ColumnRef("id"), Const(U32(100)))).unwrap();
 
     // THEN
     assert_eq!(results.len(), 1);
@@ -106,7 +106,7 @@ fn test_multiple_filters() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", 
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", 
         &Bool::and(
             Gt(ColumnRef("id"), Const(U32(100))), 
             Eq(ColumnRef("name"), Const(UTF8("banana")))
@@ -128,7 +128,7 @@ fn test_no_matching_rows() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("orange")))).unwrap();
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("orange")))).unwrap();
     
     // THEN
     assert_eq!(results.len(), 0);
@@ -140,7 +140,7 @@ fn test_no_filters() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Bool::True).unwrap();
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Bool::True).unwrap();
     
     // THEN
     assert_eq!(results.len(), 4);
@@ -152,7 +152,7 @@ fn test_invalid_column() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select_new(&[ColumnRef("invalid_column")], "Fruits", &True);
+    let result = db.select(&[ColumnRef("invalid_column")], "Fruits", &True);
 
     // THEN
     assert_eq!(result.unwrap_err(), DbError::ColumnNotFound("invalid_column".into()));
@@ -164,7 +164,7 @@ fn test_invalid_table() {
     let db = Database::new();
 
     // WHEN
-    let result = db.select_new(&[ColumnRef("id")], "NonExistent", &True);
+    let result = db.select(&[ColumnRef("id")], "NonExistent", &True);
 
     // THEN
     assert_eq!(result.unwrap_err(), DbError::TableNotFound("NonExistent".into()));

@@ -1,6 +1,7 @@
 
-use rudibi_server::dtype::{ColumnValue, DataType};
+use rudibi_server::dtype::{ColumnValue::*, DataType};
 use rudibi_server::engine::*;
+use rudibi_server::query::{Bool::*, Value::*};
 use rudibi_server::testlib;
 use rudibi_server::rows;
 
@@ -47,15 +48,15 @@ fn test_all_data_types(storage: StorageCfg) {
     let result = db.insert("MixedTypes", &["int", "float", "text", "binary", "buffer"], rows);
     assert!(result.is_ok(), "{result:#?}");
 
-    let results = db.select_old("MixedTypes", &["int", "float", "text", "binary", "buffer"], &[]).unwrap();
+    let results = db.select(&[ColumnRef("int"), ColumnRef("float"), ColumnRef("text"), ColumnRef("binary"), ColumnRef("buffer")], "MixedTypes", &True).unwrap();
     assert_eq!(results.len(), 1);
     let row = &results[0];
     let schema = db.schema_for("MixedTypes").unwrap();
-    assert!(matches!(testlib::get_column_value(&schema, &row, 0), ColumnValue::U32(42)));
-    assert!(matches!(testlib::get_column_value(&schema, row, 1), ColumnValue::F64(3.14)));
-    assert!(matches!(testlib::get_column_value(&schema, &row, 2), ColumnValue::UTF8(s) if s == "hello"));
-    assert!(matches!(testlib::get_column_value(&schema, &row, 3), ColumnValue::Bytes(v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
-    assert!(matches!(testlib::get_column_value(&schema, row, 4), ColumnValue::Bytes(v) if v == &[0xAA, 0xBB, 0xCC]));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 0), U32(42)));
+    assert!(matches!(testlib::get_column_value(&schema, row, 1), F64(3.14)));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 2), UTF8(s) if s == "hello"));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 3), Bytes(v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
+    assert!(matches!(testlib::get_column_value(&schema, row, 4), Bytes(v) if v == &[0xAA, 0xBB, 0xCC]));
 }
 
 #[test]
@@ -122,12 +123,12 @@ fn test_out_of_order_store(storage: StorageCfg) {
     ]).unwrap();
 
     // THEN
-    let results = db.select_old("Fruits", &["id", "name"], &[]).unwrap();
+    let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &True).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
     let names: Vec<&str> = results.iter().map(|row| {
         match testlib::get_column_value(&schema, &row, 1) {
-            ColumnValue::UTF8(name) => name,
+            UTF8(name) => name,
             x => panic!("Expected String, got {:?}", x),
         }
     }).collect();

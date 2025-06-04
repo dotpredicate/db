@@ -155,13 +155,6 @@ impl Row {
     }
 }
 
-#[derive(Debug)]
-pub enum Filter {
-    Equal { column: String, value: Vec<u8> },
-    GreaterThan { column: String, value: Vec<u8> },
-    LessThan { column: String, value: Vec<u8> },
-}
-
 #[derive(Clone)]
 pub enum StorageCfg {
     InMemory,
@@ -199,7 +192,7 @@ impl<'schema, 'row, 'ctx> FilterContext<'schema, 'row> where
     }
 }
 
-fn filter_row_new(schema: &Table, item: &ScanItem, filter: &Bool) -> Result<bool, DbError> {
+fn filter_row(schema: &Table, item: &ScanItem, filter: &Bool) -> Result<bool, DbError> {
     let ctx = FilterContext { schema, item };
     let res = match filter {
         Bool::True => true,
@@ -211,10 +204,10 @@ fn filter_row_new(schema: &Table, item: &ScanItem, filter: &Bool) -> Result<bool
         Bool::Gte(left, right) => ctx.execute_binop(left, right, ColumnValue::gte)?,
         Bool::Lt(left, right) => ctx.execute_binop(left, right, ColumnValue::lt)?,
         Bool::Lte(left, right) => ctx.execute_binop(left, right, ColumnValue::lte)?,
-        Bool::And(left, right) => filter_row_new(schema, item, left)? & filter_row_new(schema, item, right)?,
-        Bool::Or(left, right) => filter_row_new(schema, item, left)? | filter_row_new(schema, item, right)?,
-        Bool::Xor(left, right) => filter_row_new(schema, item, left)? ^ filter_row_new(schema, item, right)?,
-        Bool::Not(inner) => !filter_row_new(schema, item, inner)?,
+        Bool::And(left, right) => filter_row(schema, item, left)? & filter_row(schema, item, right)?,
+        Bool::Or(left, right) => filter_row(schema, item, left)? | filter_row(schema, item, right)?,
+        Bool::Xor(left, right) => filter_row(schema, item, left)? ^ filter_row(schema, item, right)?,
+        Bool::Not(inner) => !filter_row(schema, item, inner)?,
     };
     Ok(res)
 }
@@ -268,38 +261,7 @@ impl Database {
         Ok(stored)
     }
 
-    pub fn select_old(&self, table_name: &str, columns: &[&str], filters: &[Filter]) -> Result<Vec<Row>, DbError> {
-        let schema = self.schema_for(table_name)?;
-        let storage = self.storage_for(table_name)?;
-
-        // Validate and project columns
-        let column_mapping = schema.project_to_schema_optional(columns)?;
-
-        // TODO: Some mechanism of reporting / logging internal assertions
-        assert!(column_mapping.len() == columns.len(), "Column mapping should match the number of columns requested");
-
-        let filter_columns = Self::extract_filtered_columns(filters);
-        // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
-        // Validate filter columns
-        schema.project_to_schema_optional(&filter_columns)?;
-    
-        // Filter and map rows
-        let mut results = Vec::new();
-        for item in storage.scan() {
-            if self.filter_row(&schema, &item, &filters)? {
-                let mut selected_row = Vec::new();
-                for proj_col in &column_mapping {
-                    // FIXME: Cloning
-                    selected_row.push(item.row_content.get_column(proj_col.clone()));
-                }
-                let projected = Row::of_columns(&selected_row);
-                results.push(projected);
-            }
-        }
-        Ok(results)
-    }
-
-    pub fn select_new(&self, values: &[Value], table: &str, filter: &Bool) -> Result<Vec<Row>, DbError> {
+    pub fn select(&self, values: &[Value], table: &str, filter: &Bool) -> Result<Vec<Row>, DbError> {
         let schema = self.schema_for(&table)?;
         let storage = self.storage_for(&table)?;
 
@@ -326,7 +288,7 @@ impl Database {
         // Filter and map rows
         let mut results = Vec::new();
         for item in storage.scan() {
-            if filter_row_new(&schema, &item, &filter)? {
+            if filter_row(&schema, &item, &filter)? {
                 let mut selected_row = Vec::new();
                 for proj_col in &column_mapping {
                     // FIXME: Cloning
@@ -339,17 +301,17 @@ impl Database {
         Ok(results)
     }
 
-    pub fn delete(&mut self, table_name: &str, filters: &[Filter]) -> Result<usize, DbError> {
+    pub fn delete(&mut self, table_name: &str, filter: &Bool) -> Result<usize, DbError> {
         let schema = self.schema_for(table_name)?;
 
         // Validate filter columns
-        let filter_columns = Self::extract_filtered_columns(filters);
+        let filter_columns = crate::query::parse_filter_columns(filter);
         schema.project_to_schema_optional(&filter_columns)?;
 
         // Filter rows to remove
         let mut to_remove: Vec<RowId> = Vec::new();
         for item in self.storage_for(table_name)?.scan() {
-            if self.filter_row(&schema, &item, &filters)? { to_remove.push(item.row_id); }
+            if filter_row(&schema, &item, &filter)? { to_remove.push(item.row_id); }
         }
 
         // Execute removal
@@ -357,14 +319,6 @@ impl Database {
         // FIXME: Mutable borrow, again - borrow checker, storage.as_mut() doesn't work
         self.mut_storage_for(table_name)?.delete_rows(to_remove);
         Ok(removed)
-    }
-
-    fn extract_filtered_columns(filters: &[Filter]) -> Vec<&str> {
-        filters.iter().map(|f| match f {
-            Filter::Equal { column, .. } => column.as_str(),
-            Filter::GreaterThan { column, .. } => column.as_str(),
-            Filter::LessThan { column, .. } => column.as_str(),
-        }).collect()
     }
 
     pub fn schema_for(&self, table_name: &str) -> Result<&Table, DbError> {
@@ -383,54 +337,5 @@ impl Database {
         self.storage
             .get_mut(table_name)
             .ok_or_else(|| DbError::TableNotFound(table_name.to_string()))
-    }
-
-    // TODO: This probably should go somewhere else
-    fn filter_row(&self, schema: &Table, item: &ScanItem, filters: &[Filter]) -> Result<bool, DbError> {
-        for filter in filters {
-            let (column, value) = match filter {
-                Filter::Equal { column, value } => (column, value),
-                Filter::GreaterThan { column, value } => (column, value),
-                Filter::LessThan { column, value } => (column, value),
-            };
-            let (col_idx, col_scheme) = schema.require_column(column)?;
-            
-            // TODO: add implicit casting
-            let col_value = canonical_column(&col_scheme.dtype, item.row_content.get_column(col_idx))
-                .map_err(|_| DbError::DatabaseIntegrityError(
-                    format!("Column {} at RowId={} in {} cannot be represented as data type {:?}", column, item.row_id, &schema.name, &col_scheme.dtype))
-                )?;
-            let filter_val = canonical_column(&col_scheme.dtype, value)
-                .map_err(|_| DbError::InputError(format!("Cannot convert value of filter {:?} to {:?}", filter, &col_scheme.dtype)))?;
-    
-            let passes = match filter {
-                Filter::Equal { .. } => match (col_value, filter_val) {
-                    (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val == filter_val,
-                    (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val == filter_val,
-                    (ColumnValue::UTF8(col_val), ColumnValue::UTF8(filter_val)) => col_val == filter_val,
-                    _ => return Err(DbError::UnsupportedOperation(format!(
-                        "Equal filter not supported for data type {:?}", col_scheme.dtype
-                    ))),
-                },
-                Filter::GreaterThan { .. } => match (col_value, filter_val) {
-                    (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val > filter_val,
-                    (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val > filter_val,
-                    _ => return Err(DbError::UnsupportedOperation(format!(
-                        "GreaterThan filter not supported for data type {:?}", col_scheme.dtype
-                    ))),
-                },
-                Filter::LessThan { .. } => match (col_value, filter_val) {
-                    (ColumnValue::U32(col_val), ColumnValue::U32(filter_val)) => col_val < filter_val,
-                    (ColumnValue::F64(col_val), ColumnValue::F64(filter_val)) => col_val < filter_val,
-                    _ => return Err(DbError::UnsupportedOperation(format!(
-                        "LessThan filter not supported for data type {:?}", col_scheme.dtype
-                    ))),
-                },
-            };
-            if !passes {
-                return Ok(false);
-            }
-        }
-        Ok(true)
     }
 }
