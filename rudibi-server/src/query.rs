@@ -5,7 +5,7 @@ use crate::dtype::ColumnValue;
 pub enum Value<'a> {
     // Primitive value types
     ColumnRef(&'a str),
-    Const(ColumnValue),
+    Const(ColumnValue<'a>),
 
     // BinOps
     // Add(Box<Value>, Box<Value>),

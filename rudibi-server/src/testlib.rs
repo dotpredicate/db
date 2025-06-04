@@ -5,7 +5,7 @@ use crate::engine::*;
 
 
 // TODO: This probably should go somewhere else. Like a client-side util?
-pub fn get_column_value(schema: &Table, row: &Row, col_idx: usize) -> ColumnValue {
+pub fn get_column_value<'schema, 'row>(schema: &'schema Table, row: &'row Row, col_idx: usize) -> ColumnValue<'row> {
     let col_scheme = &schema.column_layout[col_idx];
     canonical_column(&col_scheme.dtype, row.get_column(col_idx)).unwrap()
 }

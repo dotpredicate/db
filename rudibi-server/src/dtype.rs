@@ -2,7 +2,9 @@
 // Data types available in the database
 // The functionality of value comparisons and casts should go here
 
-#[derive(Debug, Clone)]
+use std::str;
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
     U32,
     F64,
@@ -37,113 +39,113 @@ impl DataType {
 #[derive(Debug, PartialEq)]
 pub enum TypeError {
     ConversionError,
-    InvalidArgType(String, ColumnValue, ColumnValue)
+    InvalidArgType(String, DataType, DataType)
 }
 
-// TODO: Use pointers here!
-#[derive(Debug, Clone)]
-pub enum ColumnValue {
+#[derive(Debug, Clone, Copy)]
+pub enum ColumnValue<'a> {
     U32(u32),
     F64(f64),
-    UTF8(String),
-    Bytes(Vec<u8>),
+    UTF8(&'a str),
+    Bytes(&'a [u8]),
 }
 
-impl ColumnValue {
-    pub fn ne(&self, other: &Self) -> Result<bool, TypeError> {
-        let res = match (self, other) {
-            (Self::U32(l0), Self::U32(r0)) => l0 != r0,
-            (Self::F64(l0), Self::F64(r0)) => l0 != r0,
-            (Self::UTF8(l0), Self::UTF8(r0)) => l0 != r0,
-            // FIXME: Remove value clones here, describe just the types
-            _ => return Err(TypeError::InvalidArgType("ne".to_string(), self.clone(), other.clone())),
-        };
-        Ok(res)
+impl<'a> Into<DataType> for &ColumnValue<'a> {
+    fn into(self) -> DataType {
+        match self {
+            ColumnValue::U32(_) => DataType::U32,
+            ColumnValue::F64(_) => DataType::F64,
+            ColumnValue::UTF8(val) => DataType::UTF8 { max_bytes: val.len() },
+            ColumnValue::Bytes(val) => DataType::BUFFER { length: val.len() },
+        }
     }
+}
 
+impl<'cmp> ColumnValue<'cmp> {
+
+    #[inline(always)]
     pub fn eq(&self, other: &Self) -> Result<bool, TypeError> {
         let res = match (self, other) {
             (Self::U32(l0), Self::U32(r0)) => l0 == r0,
             (Self::F64(l0), Self::F64(r0)) => l0 == r0,
             (Self::UTF8(l0), Self::UTF8(r0)) => l0 == r0,
-            // FIXME: Remove value clones here, describe just the types
-            _ => return Err(TypeError::InvalidArgType("eq".to_string(), self.clone(), other.clone())),
+            _ => return Err(TypeError::InvalidArgType("eq".to_string(), self.into(), other.into())),
         };
         Ok(res)
     }
 
+    #[inline(always)]
+    pub fn neq(&self, other: &Self) -> Result<bool, TypeError> {
+        let res = match (self, other) {
+            (Self::U32(l0), Self::U32(r0)) => l0 != r0,
+            (Self::F64(l0), Self::F64(r0)) => l0 != r0,
+            (Self::UTF8(l0), Self::UTF8(r0)) => l0 != r0,
+            _ => return Err(TypeError::InvalidArgType("ne".to_string(), self.into(), other.into())),
+        };
+        Ok(res)
+    }
+
+    #[inline(always)]
     pub fn gt(&self, other: &Self) -> Result<bool, TypeError> {
         let res = match (self, other) {
             (Self::U32(l0), Self::U32(r0)) => l0 > r0,
             (Self::F64(l0), Self::F64(r0)) => l0 > r0,
-            // FIXME: Remove value clones here, describe just the types
-            _ => return Err(TypeError::InvalidArgType("gt".to_string(), self.clone(), other.clone())),
+            _ => return Err(TypeError::InvalidArgType("gt".to_string(), self.into(), other.into())),
         };
         Ok(res)
     }
 
+    #[inline(always)]
     pub fn gte(&self, other: &Self) -> Result<bool, TypeError> {
         let res = match (self, other) {
             (Self::U32(l0), Self::U32(r0)) => l0 >= r0,
             (Self::F64(l0), Self::F64(r0)) => l0 >= r0,
-            // FIXME: Remove value clones here, describe just the types
-            _ => return Err(TypeError::InvalidArgType("gte".to_string(), self.clone(), other.clone())),
+            _ => return Err(TypeError::InvalidArgType("gte".to_string(), self.into(), other.into())),
         };
         Ok(res)
     }
 
+    #[inline(always)]
     pub fn lt(&self, other: &Self) -> Result<bool, TypeError> {
         let res = match (self, other) {
             (Self::U32(l0), Self::U32(r0)) => l0 < r0,
             (Self::F64(l0), Self::F64(r0)) => l0 < r0,
-            // FIXME: Remove value clones here, describe just the types
-            _ => return Err(TypeError::InvalidArgType("lt".to_string(), self.clone(), other.clone())),
+            _ => return Err(TypeError::InvalidArgType("lt".to_string(), self.into(), other.into())),
         };
         Ok(res)
     }
 
+    #[inline(always)]
     pub fn lte(&self, other: &Self) -> Result<bool, TypeError> {
         let res = match (self, other) {
             (Self::U32(l0), Self::U32(r0)) => l0 <= r0,
             (Self::F64(l0), Self::F64(r0)) => l0 <= r0,
-            // FIXME: Remove value clones here, describe just the types
-            _ => return Err(TypeError::InvalidArgType("lte".to_string(), self.clone(), other.clone())),
+            _ => return Err(TypeError::InvalidArgType("lte".to_string(), self.into(), other.into())),
         };
         Ok(res)
     }
 }
 
-
 // Panicking implementation of `eq`
 // Itended for use in tests
-impl PartialEq for ColumnValue {
+#[cfg(test)]
+impl<'a> PartialEq for ColumnValue<'a> {
     fn eq(&self, other: &Self) -> bool { ColumnValue::eq(self, other).unwrap() }
 }
 
-pub fn convert_filter_value(value: &[u8], dtype: &DataType) -> Result<ColumnValue, TypeError> {
-    let result = match dtype {
-        DataType::U32 => ColumnValue::U32(u32::from_le_bytes(value.try_into().map_err(|_| TypeError::ConversionError)?)),
-        DataType::F64 => ColumnValue::F64(f64::from_le_bytes(value.try_into().map_err(|_| TypeError::ConversionError)?)),
-        DataType::UTF8 { .. } => ColumnValue::UTF8(String::from_utf8(value.to_vec()).map_err(|_| TypeError::ConversionError)?),
-        DataType::VARBINARY { .. } => ColumnValue::Bytes(value.to_vec()),
-        DataType::BUFFER { .. } => ColumnValue::Bytes(value.to_vec()),
-    };
-    Ok(result)
-}
-
-pub fn canonical_column(dtype: &DataType, data: &[u8]) -> Result<ColumnValue, TypeError> {
+// TODO: These byte conversions should be moved to `serial`
+#[inline(always)]
+pub fn canonical_column<'a>(dtype: &'_ DataType, data: &'a [u8]) -> Result<ColumnValue<'a>, TypeError> {
     match dtype {
         DataType::U32 => { Ok(ColumnValue::U32(u32::from_le_bytes(data.try_into().map_err(|_| TypeError::ConversionError)?))) }
         DataType::F64 => { Ok(ColumnValue::F64(f64::from_le_bytes(data.try_into().map_err(|_| TypeError::ConversionError)?))) }
-        DataType::UTF8 { .. } => Ok(ColumnValue::UTF8(
-            String::from_utf8(data.to_vec()).map_err(|_| TypeError::ConversionError)?,
-        )),
-        DataType::VARBINARY { .. } => Ok(ColumnValue::Bytes(data.to_vec())),
+        DataType::UTF8 { .. } => Ok(ColumnValue::UTF8(str::from_utf8(data).map_err(|_| TypeError::ConversionError)?)),
+        DataType::VARBINARY { .. } => Ok(ColumnValue::Bytes(&data)),
         DataType::BUFFER { length } => {
             if data.len() != *length {
                 return Err(TypeError::ConversionError);
             }
-            Ok(ColumnValue::Bytes(data.to_vec()))
+            Ok(ColumnValue::Bytes(&data))
         }
     }
 }

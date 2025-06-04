@@ -53,9 +53,9 @@ fn test_all_data_types(storage: StorageCfg) {
     let schema = db.schema_for("MixedTypes").unwrap();
     assert!(matches!(testlib::get_column_value(&schema, &row, 0), ColumnValue::U32(42)));
     assert!(matches!(testlib::get_column_value(&schema, row, 1), ColumnValue::F64(3.14)));
-    assert!(matches!(testlib::get_column_value(&schema, &row, 2), ColumnValue::UTF8(ref s) if s == "hello"));
-    assert!(matches!(testlib::get_column_value(&schema, &row, 3), ColumnValue::Bytes(ref v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
-    assert!(matches!(testlib::get_column_value(&schema, row, 4), ColumnValue::Bytes(ref v) if v == &[0xAA, 0xBB, 0xCC]));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 2), ColumnValue::UTF8(s) if s == "hello"));
+    assert!(matches!(testlib::get_column_value(&schema, &row, 3), ColumnValue::Bytes(v) if v == &[0x01, 0x02, 0x03, 0x04, 0x05]));
+    assert!(matches!(testlib::get_column_value(&schema, row, 4), ColumnValue::Bytes(v) if v == &[0xAA, 0xBB, 0xCC]));
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn test_out_of_order_store(storage: StorageCfg) {
     let results = db.select_old("Fruits", &["id", "name"], &[]).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
-    let names: Vec<String> = results.iter().map(|row| {
+    let names: Vec<&str> = results.iter().map(|row| {
         match testlib::get_column_value(&schema, &row, 1) {
             ColumnValue::UTF8(name) => name,
             x => panic!("Expected String, got {:?}", x),

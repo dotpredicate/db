@@ -11,7 +11,7 @@ fn test_equality() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("banana".to_string())))).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("banana")))).unwrap();
     
     // THEN
     assert_eq!(results.len(), 2);
@@ -66,7 +66,7 @@ fn test_gt_utf8_unsupported() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let result = db.select_new(&[ColumnRef("name")], "Fruits", &Gt(ColumnRef("name"), Const(UTF8("banana".to_string()))));
+    let result = db.select_new(&[ColumnRef("name")], "Fruits", &Gt(ColumnRef("name"), Const(UTF8("banana"))));
 
     // THEN
     assert!(matches!(result, Err(DbError::QueryError(TypeError::InvalidArgType(_, _, _)))), "{result:#?}");
@@ -109,7 +109,7 @@ fn test_multiple_filters() {
     let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", 
         &Bool::and(
             Gt(ColumnRef("id"), Const(U32(100))), 
-            Eq(ColumnRef("name"), Const(UTF8("banana".to_string())))
+            Eq(ColumnRef("name"), Const(UTF8("banana")))
         )
     ).unwrap();
 
@@ -128,7 +128,7 @@ fn test_no_matching_rows() {
     let db = testlib::fruits_table(StorageCfg::InMemory);
 
     // WHEN
-    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("orange".to_string())))).unwrap();
+    let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &Eq(ColumnRef("name"), Const(UTF8("orange")))).unwrap();
     
     // THEN
     assert_eq!(results.len(), 0);

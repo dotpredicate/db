@@ -85,7 +85,7 @@ impl Table {
         Ok(indices)
     }
 
-    fn require_column(&self, name: &str) -> Result<(usize, &Column), DbError> {
+    fn require_column<'schema>(&'schema self, name: &'_ str) -> Result<(usize, &'schema Column), DbError> {
         self.columns.get(name)
             .map(|(i, col)| (i.clone(), col))
             .ok_or_else(|| DbError::ColumnNotFound(name.to_string()))
@@ -173,17 +173,18 @@ pub struct Database {
     storage: HashMap<String, Box<dyn Storage>>
 }
 
-pub struct FilterContext<'a> {
-    schema: &'a Table,
-    item: &'a ScanItem<'a>,
+pub struct FilterContext<'schema, 'row> {
+    schema: &'schema Table,
+    item: &'row ScanItem<'row>,
 }
 
-impl<'a> FilterContext<'a> {
-    fn execute_binop(&self, left: &Value, right: &Value, op: fn(&ColumnValue, &ColumnValue) -> Result<bool, TypeError>) -> Result<bool, DbError> {
+impl<'schema, 'row, 'ctx> FilterContext<'schema, 'row> where 
+    'ctx: 'schema + 'row {
+    fn execute_binop(&self, left: &'ctx Value<'ctx>, right: &'ctx Value<'ctx>, op: fn(&ColumnValue<'row>, &ColumnValue<'row>) -> Result<bool, TypeError>) -> Result<bool, DbError> {
         op(&self.resolve_value(&left)?, &self.resolve_value(&right)?).map_err(|err| DbError::QueryError(err))
     }
 
-    fn resolve_value(&self, val: &Value) -> Result<ColumnValue, DbError> {
+    fn resolve_value(&self, val: &'ctx Value<'ctx>) -> Result<ColumnValue<'row>, DbError> {
         match val {
             Value::ColumnRef(column_name) => {
                 let (col_idx, col) = self.schema.require_column(&column_name)?;
@@ -193,8 +194,7 @@ impl<'a> FilterContext<'a> {
                         format!("Column {} at RowId={} in {} cannot be represented as data type {:?}", &column_name, &self.item.row_id, &self.schema.name, &col.dtype))
                     )
             },
-            // FIXME: Remove the clone once we use pointers
-            Value::Const(column_value) => Ok(column_value.clone()),
+            Value::Const(column_value) => Ok(*column_value),
         }
     }
 }
@@ -206,7 +206,7 @@ fn filter_row_new(schema: &Table, item: &ScanItem, filter: &Bool) -> Result<bool
         Bool::False => false,
         
         Bool::Eq(left, right) => ctx.execute_binop(left, right, ColumnValue::eq)?,
-        Bool::Neq(left, right) => ctx.execute_binop(left, right, |l, r| ColumnValue::eq(l, r).map(|x| !x))?,
+        Bool::Neq(left, right) => ctx.execute_binop(left, right, ColumnValue::neq)?,
         Bool::Gt(left, right) => ctx.execute_binop(left, right, ColumnValue::gt)?,
         Bool::Gte(left, right) => ctx.execute_binop(left, right, ColumnValue::gte)?,
         Bool::Lt(left, right) => ctx.execute_binop(left, right, ColumnValue::lt)?,
@@ -400,7 +400,7 @@ impl Database {
                 .map_err(|_| DbError::DatabaseIntegrityError(
                     format!("Column {} at RowId={} in {} cannot be represented as data type {:?}", column, item.row_id, &schema.name, &col_scheme.dtype))
                 )?;
-            let filter_val = convert_filter_value(value, &col_scheme.dtype)
+            let filter_val = canonical_column(&col_scheme.dtype, value)
                 .map_err(|_| DbError::InputError(format!("Cannot convert value of filter {:?} to {:?}", filter, &col_scheme.dtype)))?;
     
             let passes = match filter {

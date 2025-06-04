@@ -54,7 +54,7 @@ fn test_delete_with_equality_filter(storage: StorageCfg) {
     let results = db.select_new(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &True).unwrap();
     assert_eq!(results.len(), 2);
     let schema = db.schema_for("Fruits").unwrap();
-    let names: Vec<String> = results.iter().map(|row| {
+    let names: Vec<&str> = results.iter().map(|row| {
         match testlib::get_column_value(&schema, &row, 1) {
             UTF8(name) => name,
             x => panic!("Expected String, got {:?}", x),
