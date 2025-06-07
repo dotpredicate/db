@@ -25,7 +25,7 @@ fn store_nothing_in_mem() {
 
 #[test]
 fn store_nothing_on_disk() {
-    store_nothing(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(store_nothing);
 }
 
 
@@ -66,7 +66,7 @@ fn test_all_data_types_in_mem() {
 
 #[test]
 fn test_all_data_types_on_disk() {
-    test_all_data_types(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_all_data_types);
 }
 
 
@@ -109,7 +109,7 @@ fn test_column_size_limits_in_mem() {
 
 #[test]
 fn test_column_size_limits_on_disk() {
-    test_column_size_limits(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_column_size_limits);
 }
 
 fn test_out_of_order_store(storage: StorageCfg) {
@@ -142,5 +142,5 @@ fn test_out_of_order_store_in_mem() {
 
 #[test]
 fn test_out_of_order_store_on_disk() {
-    test_out_of_order_store(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_out_of_order_store);
 }

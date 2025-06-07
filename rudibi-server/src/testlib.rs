@@ -2,9 +2,6 @@
 use crate::dtype::*;
 use crate::engine::*;
 
-
-
-// TODO: This probably should go somewhere else. Like a client-side util?
 pub fn get_column_value<'schema, 'row>(schema: &'schema Table, row: &'row Row, col_idx: usize) -> ColumnValue<'row> {
     let col_scheme = &schema.column_layout[col_idx];
     canonical_column(&col_scheme.dtype, row.get_column(col_idx)).unwrap()
@@ -25,6 +22,13 @@ macro_rules! rows {
         &[
             $( Row::of_columns(&[$( $crate::serial::Serializable::serialized(&$x) ),+]) ),*
         ]
+    };
+}
+
+#[macro_export]
+macro_rules! assert_rows {
+    () => {
+        
     };
 }
 
@@ -62,7 +66,7 @@ pub fn random_temp_file() -> String {
     let tmp = env::temp_dir();
     let new_file = loop {
         let unix_timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let fname = format!("{}/test_{}.db", tmp.display(), unix_timestamp.as_nanos());
+        let fname = format!("{}/test_{}", tmp.display(), unix_timestamp.as_nanos());
         match File::create_new(fname.clone()) {
             Ok(_) => {
                 // println!("Created new file {}", fname);
@@ -72,4 +76,10 @@ pub fn random_temp_file() -> String {
         }
     };
     new_file
+}
+
+pub fn with_tmp(fun: fn(StorageCfg)) {
+    let file_path =  random_temp_file();
+    fun(StorageCfg::Disk { path: file_path.clone() });
+    std::fs::remove_file(file_path).unwrap();
 }

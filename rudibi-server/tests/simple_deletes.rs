@@ -35,7 +35,7 @@ fn test_delete_empty_in_mem() {
 
 #[test]
 fn test_delete_empty_on_disk() {
-    test_delete_empty(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_delete_empty);
 }
 
 
@@ -67,7 +67,7 @@ fn test_delete_with_equality_filter_in_mem() {
 
 #[test]
 fn test_delete_with_equality_filter_on_disk() {
-    test_delete_with_equality_filter(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_delete_with_equality_filter);
 }
 
 
@@ -100,7 +100,7 @@ fn test_delete_with_greater_than_filter_in_mem() {
 
 #[test]
 fn test_delete_with_greater_than_filter_on_disk() {
-    test_delete_with_greater_than_filter(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_delete_with_greater_than_filter);
 }
 
 fn test_delete_all_rows(storage: StorageCfg) {
@@ -123,7 +123,7 @@ fn test_delete_all_rows_in_mem() {
 
 #[test]
 fn test_delete_all_rows_on_disk() {
-    test_delete_all_rows(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_delete_all_rows);
 }
 
 fn test_delete_with_invalid_column(storage: StorageCfg) {
@@ -144,5 +144,5 @@ fn test_delete_with_invalid_column_in_mem() {
 
 #[test]
 fn test_delete_with_invalid_column_on_disk() {
-    test_delete_with_invalid_column(StorageCfg::Disk { path: testlib::random_temp_file() });
+    testlib::with_tmp(test_delete_with_invalid_column);
 }
