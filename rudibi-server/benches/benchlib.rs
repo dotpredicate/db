@@ -5,7 +5,7 @@ use rudibi_server::query::{Bool::*, Value::*};
 use rudibi_server::testlib;
 
 use std::hint::black_box;
-use std::fmt::{format, Debug};
+use std::fmt::{Debug};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -113,9 +113,9 @@ pub fn run_bench<T: Copy + Debug, U, R> (
             };
             db.new_table(&schema, storage.clone()).unwrap();
             let test_arg = setup(&mut db, arg);
-            let start = std::time::SystemTime::now();
+            let start = std::time::Instant::now();
             black_box(test(black_box(&mut db), black_box(test_arg)));
-            let time = start.elapsed().unwrap();
+            let time = start.elapsed();
             if let StorageCfg::Disk { path } = storage { std::fs::remove_file(path).unwrap() }
             measurements.push(time);
         }
