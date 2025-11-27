@@ -8,10 +8,10 @@ pub enum Value<'a> {
     Const(ColumnValue<'a>),
 
     // BinOps
-    // Add(Box<Value>, Box<Value>),
-    // Sub(Box<Value>, Box<Value>),
-    // Mul(Box<Value>, Box<Value>),
-    // Div(Box<Value>, Box<Value>)
+    // Add(Box<Value<'a>>, Box<Value<'a>>),
+    // Sub(Box<Value<'a>>, Box<Value<'a>>),
+    // Mul(Box<Value<'a>>, Box<Value<'a>>),
+    // Div(Box<Value<'a>>, Box<Value<'a>>)
 }
 
 // impl ops::Add<Value> for Value {
@@ -76,7 +76,7 @@ fn collect_value_columns<'a>(value: &'a Value) -> Vec<&'a str> {
     }
 }
 
-pub fn parse_filter_columns<'a>(bool_expr: &'a Bool) -> Vec<&'a str> {
+pub fn collect_filter_columns<'a>(bool_expr: &'a Bool) -> Vec<&'a str> {
     match bool_expr {
         Bool::True | Bool::False => vec![],
         Bool::Eq(left, right) |
@@ -85,18 +85,18 @@ pub fn parse_filter_columns<'a>(bool_expr: &'a Bool) -> Vec<&'a str> {
         Bool::Gte(left, right) |
         Bool::Lt(left, right) |
         Bool::Lte(left, right) => {
-            let mut left_cols = collect_value_columns(left);
-            left_cols.extend(collect_value_columns(right));
-            left_cols
+            let mut cols = collect_value_columns(left);
+            cols.extend(collect_value_columns(right));
+            cols
         },
         Bool::And(left, right) |
         Bool::Or(left, right) |
         Bool::Xor(left, right) => {
-            let mut left_cols = parse_filter_columns(left);
-            left_cols.extend(parse_filter_columns(right));
+            let mut left_cols = collect_filter_columns(left);
+            left_cols.extend(collect_filter_columns(right));
             left_cols
         },
-        Bool::Not(expr) => parse_filter_columns(expr),
+        Bool::Not(expr) => collect_filter_columns(expr),
     }
 }
 
@@ -118,7 +118,7 @@ mod tests {
             )),
         );
 
-        let columns = parse_filter_columns(&query);
+        let columns = collect_filter_columns(&query);
         assert_eq!(columns, vec!["age", "salary"]);
     }
 

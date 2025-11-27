@@ -99,7 +99,7 @@ impl Table {
         // Probably not needed here
         // TODO: allow partial inserts for optional columns
         if input_columns != column_mapping.len(){
-            return Err(DbError::InvalidColumnCount { expected: self.column_layout.len(), got: input_columns }) ;
+            return Err(DbError::InvalidColumnCount { expected: self.column_layout.len(), got: input_columns });
         }
         
         // Validate the row size
@@ -280,7 +280,7 @@ impl Database {
         // TODO: Some mechanism of reporting / logging internal assertions
         assert!(column_mapping.len() == result_columns.len(), "Column mapping should match the number of columns requested");
 
-        let filter_columns = crate::query::parse_filter_columns(&filter);
+        let filter_columns = crate::query::collect_filter_columns(&filter);
         // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
         // Validate filter columns
         schema.project_to_schema_optional(&filter_columns)?;
@@ -305,7 +305,7 @@ impl Database {
         let schema = self.schema_for(table_name)?;
 
         // Validate filter columns
-        let filter_columns = crate::query::parse_filter_columns(filter);
+        let filter_columns = crate::query::collect_filter_columns(filter);
         schema.project_to_schema_optional(&filter_columns)?;
 
         // Filter rows to remove

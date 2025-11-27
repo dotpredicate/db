@@ -69,7 +69,6 @@ impl TablePrinter {
         self.print_row(&HEADER_ROW);
         let divider = std::iter::repeat_n(String::from("-"), self.lengths.iter().cloned().reduce(|a, b| a + b).unwrap() + 3*COLUMNS + 1).reduce(|a, b| a + &b).unwrap();
         println!("{divider}");
-        
     }
 
     pub fn print_result(&mut self, m: BenchResult) {
