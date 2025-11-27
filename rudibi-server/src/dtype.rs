@@ -69,6 +69,7 @@ impl<'cmp> ColumnValue<'cmp> {
             (Self::U32(l0), Self::U32(r0)) => l0 == r0,
             (Self::F64(l0), Self::F64(r0)) => l0 == r0,
             (Self::UTF8(l0), Self::UTF8(r0)) => l0 == r0,
+            (Self::Bytes(r0), Self::Bytes(l0)) => r0 == l0,
             _ => return Err(TypeError::InvalidArgType("eq".to_string(), self.into(), other.into())),
         };
         Ok(res)
@@ -80,6 +81,7 @@ impl<'cmp> ColumnValue<'cmp> {
             (Self::U32(l0), Self::U32(r0)) => l0 != r0,
             (Self::F64(l0), Self::F64(r0)) => l0 != r0,
             (Self::UTF8(l0), Self::UTF8(r0)) => l0 != r0,
+            (Self::Bytes(r0), Self::Bytes(l0)) => r0 != l0,
             _ => return Err(TypeError::InvalidArgType("ne".to_string(), self.into(), other.into())),
         };
         Ok(res)
@@ -128,7 +130,8 @@ impl<'cmp> ColumnValue<'cmp> {
 
 // Panicking implementation of `eq`
 // Itended for use in tests
-#[cfg(test)]
+// FIXME: Why doesn't #[cfg(test)] work correctly??
+// #[cfg(test)]
 impl<'a> PartialEq for ColumnValue<'a> {
     fn eq(&self, other: &Self) -> bool { ColumnValue::eq(self, other).unwrap() }
 }

@@ -2,11 +2,6 @@
 use crate::dtype::*;
 use crate::engine::*;
 
-pub fn get_column_value<'schema, 'row>(schema: &'schema Table, row: &'row Row, col_idx: usize) -> ColumnValue<'row> {
-    let col_scheme = &schema.column_layout[col_idx];
-    canonical_column(&col_scheme.dtype, row.get_column(col_idx)).unwrap()
-}
-
 pub fn fruits_schema() -> Table {
     Table::new("Fruits",
         vec![
@@ -25,11 +20,18 @@ macro_rules! rows {
     };
 }
 
-#[macro_export]
-macro_rules! assert_rows {
-    () => {
-        
-    };
+pub fn check_equality<const COLS: usize>(results: &ResultSet, expected: &[[ColumnValue; COLS]]) {
+    assert_eq!(results.data.len(), expected.len());
+    for (row_idx, (expected_row, result_row)) in expected.iter().zip(results.data.iter()).enumerate() {
+        assert_eq!(result_row.offsets.len() - 1, COLS);
+        for col_idx in 0..COLS {
+            let expected_col = expected_row[col_idx];
+            let result_col_raw = result_row.get_column(col_idx);
+            let result_col_schema = &results.schema[col_idx];
+            let result_col_canonical = canonical_column(&result_col_schema.dtype, &result_col_raw).unwrap();
+            assert_eq!(result_col_canonical, expected_col, "Column {} ({}) at row {} not equal", col_idx, result_col_schema.name, row_idx);
+        }
+    }
 }
 
 pub fn fruits_table(storage: StorageCfg) -> Database {

@@ -1,8 +1,8 @@
 
-use rudibi_server::dtype::ColumnValue::*;
-use rudibi_server::engine::*;
+use rudibi_server::dtype::{ColumnValue::*};
+use rudibi_server::engine::{Database, StorageCfg, DbError};
 use rudibi_server::query::{Bool::*, Value::*};
-use rudibi_server::testlib;
+use rudibi_server::testlib::{empty_table, fruits_table, check_equality, with_tmp};
 
 #[test]
 fn test_delete_non_existent_table() {
@@ -19,7 +19,7 @@ fn test_delete_non_existent_table() {
 
 fn test_delete_empty(storage: StorageCfg) {
     // GIVEN
-    let mut db = testlib::empty_table(storage);
+    let mut db = empty_table(storage);
 
     // WHEN
     let deleted_count = db.delete("EmptyTable", &True).unwrap();
@@ -35,13 +35,13 @@ fn test_delete_empty_in_mem() {
 
 #[test]
 fn test_delete_empty_on_disk() {
-    testlib::with_tmp(test_delete_empty);
+    with_tmp(test_delete_empty);
 }
 
 
 fn test_delete_with_equality_filter(storage: StorageCfg) {
     // GIVEN
-    let mut db = testlib::fruits_table(storage);
+    let mut db = fruits_table(storage);
 
     // WHEN
     let deleted_count = db.delete("Fruits", &Eq(ColumnRef("name"), Const(UTF8("banana")))).unwrap();
@@ -49,15 +49,10 @@ fn test_delete_with_equality_filter(storage: StorageCfg) {
     // THEN
     assert_eq!(deleted_count, 2);
     let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits", &True).unwrap();
-    assert_eq!(results.len(), 2);
-    let schema = db.schema_for("Fruits").unwrap();
-    let names: Vec<&str> = results.iter().map(|row| {
-        match testlib::get_column_value(&schema, &row, 1) {
-            UTF8(name) => name,
-            x => panic!("Expected String, got {:?}", x),
-        }
-    }).collect();
-    assert_eq!(names, vec!["apple", "cherry"]);
+    check_equality(&results, &[
+        [U32(100), UTF8("apple")],
+        [U32(400), UTF8("cherry")]
+    ]);
 }
 
 #[test]
@@ -67,13 +62,13 @@ fn test_delete_with_equality_filter_in_mem() {
 
 #[test]
 fn test_delete_with_equality_filter_on_disk() {
-    testlib::with_tmp(test_delete_with_equality_filter);
+    with_tmp(test_delete_with_equality_filter);
 }
 
 
 fn test_delete_with_greater_than_filter(storage: StorageCfg) {
     // GIVEN
-    let mut db = testlib::fruits_table(storage);
+    let mut db = fruits_table(storage);
 
     // WHEN
     let deleted_count = db.delete("Fruits", &Gt(ColumnRef("id"), Const(U32(200)))).unwrap();
@@ -81,16 +76,10 @@ fn test_delete_with_greater_than_filter(storage: StorageCfg) {
     // THEN
     assert_eq!(deleted_count, 2);
     let results = db.select(&[ColumnRef("id"), ColumnRef("name")], "Fruits",  &True).unwrap();
-    assert_eq!(results.len(), 2);
-    let schema = db.schema_for("Fruits").unwrap();
-    let ids: Vec<u32> = results.iter().map(|row| {
-        if let U32(id) = testlib::get_column_value(&schema, &row, 0) {
-            id
-        } else {
-            panic!("Expected U32");
-        }
-    }).collect();
-    assert_eq!(ids, vec![100, 200]);
+    check_equality(&results, &[
+        [U32(100), UTF8("apple")],
+        [U32(200), UTF8("banana")]
+    ]);
 }
 
 #[test]
@@ -100,19 +89,19 @@ fn test_delete_with_greater_than_filter_in_mem() {
 
 #[test]
 fn test_delete_with_greater_than_filter_on_disk() {
-    testlib::with_tmp(test_delete_with_greater_than_filter);
+    with_tmp(test_delete_with_greater_than_filter);
 }
 
 fn test_delete_all_rows(storage: StorageCfg) {
     // GIVEN
-    let mut db = testlib::fruits_table(storage);
+    let mut db = fruits_table(storage);
 
     // WHEN
     let deleted_count = db.delete("Fruits", &True).unwrap();
 
     // THEN
     assert_eq!(deleted_count, 4);
-    let results = db.select(&[ColumnRef("id".into())], "Fruits", &True).unwrap();
+    let results = db.select(&[ColumnRef("id")], "Fruits", &True).unwrap();
     assert_eq!(results.len(), 0);
 }
 
@@ -123,12 +112,12 @@ fn test_delete_all_rows_in_mem() {
 
 #[test]
 fn test_delete_all_rows_on_disk() {
-    testlib::with_tmp(test_delete_all_rows);
+    with_tmp(test_delete_all_rows);
 }
 
 fn test_delete_with_invalid_column(storage: StorageCfg) {
     // GIVEN
-    let mut db = testlib::fruits_table(storage);
+    let mut db = fruits_table(storage);
 
     // WHEN
     let result = db.delete("Fruits", &Eq(ColumnRef("invalid"), Const(U32(100))));
@@ -144,5 +133,5 @@ fn test_delete_with_invalid_column_in_mem() {
 
 #[test]
 fn test_delete_with_invalid_column_on_disk() {
-    testlib::with_tmp(test_delete_with_invalid_column);
+    with_tmp(test_delete_with_invalid_column);
 }

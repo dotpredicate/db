@@ -7,5 +7,5 @@ fn main() {
     scenarios::select_all(Backend::Memory);
     scenarios::select_half_filter_lt(Backend::Memory);
     scenarios::delete_all(&[1, 10, 100, 1_000, 10_000, 100_000, 1_000_000], Backend::Memory);
-    scenarios::delete_first_half(&[1, 10, 100, 1_000, 10_000, 50_000], Backend::Memory);
+    scenarios::delete_first_half(&[1, 10, 100, 1_000, 5_000, 10_000, 20_000], Backend::Memory);
 }

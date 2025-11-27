@@ -57,19 +57,21 @@ impl Table {
 
     // Projecting columns in select clauses, filters, etc.
     // Seen as projecting input columns to schema
-    pub fn project_to_schema_optional(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
+    pub fn project_to_schema(&self, columns: &[&str]) -> Result<Vec<(usize, &Column)>, DbError> {
         let mut indices = Vec::with_capacity(columns.len());
         for col in columns {
-            let (col_idx, _) = self.require_column(col)?;
-            indices.push(col_idx);
+            let col = self.require_column(col)?;
+            indices.push(col);
         }
+        // TODO: Some mechanism of reporting / logging internal assertions
+        assert!(columns.len() == indices.len(), "Column mapping should match the number of columns requested");
         Ok(indices)
     }
 
     // Projecting columns in inserts where all columns are required
     // Seen as projecting schema to input columns
     // TODO: Allow partial inserts
-    pub fn project_from_schema_required(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
+    pub fn project_from_schema(&self, columns: &[&str]) -> Result<Vec<usize>, DbError> {
         if columns.len() != self.column_layout.len() {
             // FIXME: Better error here. Missing required column.
             return Err(DbError::InvalidColumnCount { expected: self.column_layout.len(), got: columns.len() });
@@ -78,7 +80,8 @@ impl Table {
         let mut indices = Vec::with_capacity(self.column_layout.len());
         for col in &self.column_layout {
             // FIXME: Better error here. Missing required column.
-            let source_idx = columns.iter().position(|c| c == &col.name)
+            let source_idx = columns.iter()
+                .position(|c| c == &col.name)
                 .ok_or_else(|| DbError::ColumnNotFound(col.name.clone()))?;
             indices.push(source_idx);
         }
@@ -87,7 +90,7 @@ impl Table {
 
     fn require_column<'schema>(&'schema self, name: &'_ str) -> Result<(usize, &'schema Column), DbError> {
         self.columns.get(name)
-            .map(|(i, col)| (i.clone(), col))
+            .map(|(i, col)| (*i, col))
             .ok_or_else(|| DbError::ColumnNotFound(name.to_string()))
     }
 
@@ -154,6 +157,27 @@ impl Row {
         return &self.data[start..end];
     }
 }
+
+pub struct ResultSet {
+    pub schema: Vec<Column>,
+    pub data: Vec<Row>,
+}
+
+impl ResultSet {
+    pub fn len(&self) -> usize {
+        return self.data.len();
+    }
+}
+
+impl std::fmt::Debug for ResultSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResultSet")
+            .field("schema", &self.schema)
+            .field("data", &format!("{} rows", self.data.len()))
+            .finish()
+    }
+}
+
 
 #[derive(Clone)]
 pub enum StorageCfg {
@@ -247,7 +271,7 @@ impl Database {
 
     pub fn insert(&mut self, table_name: &str, columns: &[&str], what: &[Row]) -> Result<usize, DbError> {
         let schema = self.schema_for(&table_name)?;
-        let column_mapping = schema.project_from_schema_required(columns)?;
+        let column_mapping = schema.project_from_schema(columns)?;
 
         for row in what.iter().cloned() {
             schema.validate_input(&row, &column_mapping)?;
@@ -261,7 +285,7 @@ impl Database {
         Ok(stored)
     }
 
-    pub fn select(&self, values: &[Value], table: &str, filter: &Bool) -> Result<Vec<Row>, DbError> {
+    pub fn select(&self, values: &[Value], table: &str, filter: &Bool) -> Result<ResultSet, DbError> {
         let schema = self.schema_for(&table)?;
         let storage = self.storage_for(&table)?;
 
@@ -269,36 +293,37 @@ impl Database {
         let mut result_columns = Vec::with_capacity(values.len());
         for val in values {
             if let Value::ColumnRef(col_name) = val {
+                #[allow(suspicious_double_ref_op)]
                 result_columns.push(col_name.clone());
             } else {
                 return Err(DbError::UnsupportedOperation(format!("Selecting values other than column references not supported {:?}", val)));
             }
         }
 
-        let column_mapping = schema.project_to_schema_optional(&result_columns)?;
-
-        // TODO: Some mechanism of reporting / logging internal assertions
-        assert!(column_mapping.len() == result_columns.len(), "Column mapping should match the number of columns requested");
-
+        let result_mapping = schema.project_to_schema(&result_columns)?;
         let filter_columns = crate::query::collect_filter_columns(&filter);
         // TODO: Mapping of filters to column IDs is unused. Internally this will use string mapping.
         // Validate filter columns
-        schema.project_to_schema_optional(&filter_columns)?;
+        schema.project_to_schema(&filter_columns)?;
     
         // Filter and map rows
-        let mut results = Vec::new();
+        let mut rows = Vec::new();
         for item in storage.scan() {
             if filter_row(&schema, &item, &filter)? {
                 let mut selected_row = Vec::new();
-                for proj_col in &column_mapping {
+                for proj_col in &result_mapping {
                     // FIXME: Cloning
-                    selected_row.push(item.row_content.get_column(proj_col.clone()));
+                    selected_row.push(item.row_content.get_column(proj_col.0));
                 }
                 let projected = Row::of_columns(&selected_row);
-                results.push(projected);
+                rows.push(projected);
             }
         }
-        Ok(results)
+
+        let result_schema: Vec<Column> = result_mapping.iter()
+            .map(|col| col.1.clone())
+            .collect();
+        Ok(ResultSet { data: rows, schema: result_schema})
     }
 
     pub fn delete(&mut self, table_name: &str, filter: &Bool) -> Result<usize, DbError> {
@@ -306,7 +331,7 @@ impl Database {
 
         // Validate filter columns
         let filter_columns = crate::query::collect_filter_columns(filter);
-        schema.project_to_schema_optional(&filter_columns)?;
+        schema.project_to_schema(&filter_columns)?;
 
         // Filter rows to remove
         let mut to_remove: Vec<RowId> = Vec::new();

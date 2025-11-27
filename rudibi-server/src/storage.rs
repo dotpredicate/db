@@ -311,9 +311,7 @@ impl Storage for DiskStorage {
         })))
     }
 
-    fn delete_rows(&mut self, row_ids: Vec<RowId>) {
-        // FIXME: Is Rust really that bad and requires redeclaration of an OWNED param just to mutate it?
-        let mut row_ids = row_ids;
+    fn delete_rows(&mut self, mut row_ids: Vec<RowId>) {
         row_ids.sort();
 
         let (mut reader, offsets_bytes) = self.new_reader();
